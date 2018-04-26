@@ -14,7 +14,6 @@ import functools
 import matplotlib.pyplot as plt
 import datetime
 
-sys.path.append('/home/leminen/Documents/RoboWeedMaps/GAN/weed-gan-v1')
 import src.data.process_dataset as process_dataset
 import src.utils as utils
 
@@ -25,9 +24,9 @@ ds = tf.contrib.distributions
 
 leaky_relu = lambda net: tf.nn.leaky_relu(net, alpha=0.01)
 
-class acgan(object):
+class acgan_v01(object):
     def __init__(self):
-        self.model = 'acgan'
+        self.model = 'acgan_v01'
         self.dir_logs        = 'models/' + self.model + '/logs'
         self.dir_checkpoints = 'models/' + self.model + '/checkpoints'
         self.dir_results     = 'models/' + self.model + '/results'
@@ -46,14 +45,13 @@ class acgan(object):
         https://github.com/openai/InfoGAN.
         
         Args:
-            inputs: A 3-tuple of Tensors (unstructured_noise, categorical structured
-                noise, continuous structured noise). `inputs[0]` and `inputs[2]` must be
-                2D, and `inputs[1]` must be 1D. All must have the same first dimension.
-            categorical_dim: Dimensions of the incompressible categorical noise.
+            inputs: A 2-tuple of Tensors (unstructured_noise, labels_onehot).
+                inputs[0] and inputs[1] is both 2D. All must have the same first dimension.
             weight_decay: The value of the l2 weight decay.
             is_training: If `True`, batch norm uses batch statistics. If `False`, batch
                 norm uses the exponential moving average collected from population 
                 statistics.
+            reuse: If `True`, the variables in scope will be reused
         
         Returns:
             A generated image in the range [-1, 1].
@@ -75,11 +73,8 @@ class acgan(object):
                 net = tf.reshape(net, [-1, 7, 7, 128])
                 net = layers.conv2d_transpose(net, 64, [4, 4], stride = 2)
                 net = layers.conv2d_transpose(net,  1, [4, 4], stride = 2, normalizer_fn = None, activation_fn = tf.tanh)
-
-                # net = layers.conv2d_transpose(net, 32, [4, 4], stride = 2)
-                # # Make sure that generator output is in the same range as `inputs`
-                # # ie [-1, 1].
-                # net = layers.conv2d(net, 1, 4, normalizer_fn=None, activation_fn=tf.tanh)
+                # Make sure that generator output is in the same range as `inputs`
+                # ie [-1, 1].
         
                 return net
     
@@ -99,6 +94,7 @@ class acgan(object):
             class_dim: Number of classes to classify.
             is_training: If `True`, batch norm uses batch statistics. If `False`, batch
                 norm uses the exponential moving average collected from population statistics.
+            reuse: If `True`, the variables in scope will be reused
     
         Returns:
             Logits for the probability that the image is real, and logits for the probability
@@ -135,8 +131,14 @@ class acgan(object):
     def _create_inference(self, images, labels, z):
         """ Define the inference model for the network
         Args:
+            images: Input batch of Real MNIST images
+            labels: Input labels corresponding to each image (one_hot encoded) 
+            z: input batch of unstructured noise vectors
     
         Returns:
+            logits_source: 2D tuple with estimated probability of images being real. [0] output for real images, [1] output for fake images
+            logits_class: 2D tuple with estimated probability of the image belonging to each class. [0] output for real images, [1] output for fake images
+            test_images: output images to inspect the current performance of the generator
         """
         generated_images = self.__generator([z, labels])
         logits_source_real, logits_class_real = self.__discriminator(images)
@@ -150,8 +152,12 @@ class acgan(object):
     def _create_losses(self, logits_source, logits_class, labels):
         """ Define loss function[s] for the network
         Args:
-    
+            logits_source: 2D tuple with estimated probability of images being real.
+            logits_class: 2D tuple with estimated probability of the image belonging to each class.
+            labels: groundtruth labels (one_hot encoded)
         Returns:
+            loss_discriminator: calculated loss for the discriminator network
+            loss_generator: calculated loss for the generator network
         """
 
         [logits_source_real, logits_source_fake] = logits_source
@@ -194,8 +200,12 @@ class acgan(object):
     def _create_optimizer(self, loss_discriminator, loss_generator):
         """ Create optimizer for the network
         Args:
+            loss_discriminator: calculated loss for the discriminator network
+            loss_generator: calculated loss for the generator network
     
         Returns:
+            train_op_discriminator: tensorflow optimizer operation used to update the weigths of the discriminator network
+            train_op_generator: tensorflow optimizer operation used to update the weigths of the generator network
         """
         # variables for discriminator
         d_vars = tf.get_collection(
@@ -395,5 +405,3 @@ class acgan(object):
 
         return test_unstructured_noise, test_class_lbls
 
-model = acgan()
-model.train('MNIST', 25, 32)

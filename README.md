@@ -1,12 +1,12 @@
-infoGAN-collections
+ACGAN-collections
 ==============================
 
-Project containing different infoGAN implementations:
+Project containing different ACGAN implementations:
 
-- infoGAN
-    (Default infoGAN implementation modeling the MNIST dataset)
-- infoGAN_rgb
-    (Modified infoGAN implementaion used for modeling artificial coloured digits of the MNIST dataset)
+- acgan_v01
+    (acgan implementation modeling the MNIST dataset. generator and discriminator is inspired by infoGAN)
+- acgan
+    (ACGAN implementation)
 
 Run the code with the following command:
 

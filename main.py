@@ -19,9 +19,8 @@ import datetime
 from src.data import make_dataset
 from src.data import process_dataset
 from src.models.BasicModel import BasicModel
-from src.models.infoGAN import infoGAN
-from src.models.infoGAN_rbg import infoGAN_rgb
-from src.models.infoGAN_32x32 import infoGAN_32x32
+from src.models.acgan_v01 import acgan_v01
+from src.models.acgan import acgan
 from src.visualization import visualize
 
 
@@ -58,9 +57,8 @@ def parse_args():
     parser.add_argument('--model', 
                         type=str, 
                         default='infoGAN', 
-                        choices=['infoGAN', 
-                                 'infoGAN_rgb',
-                                 'infoGAN_32x32'],
+                        choices=['acgan_v01', 
+                                 'acgan'],
                         #required = True,
                         help='The name of the network model')
 
@@ -130,23 +128,18 @@ def main():
             model = BasicModel()
             model.train(dataset_str = args.dataset, epoch_N = args.epoch_max, batch_N = 64)
                
-        elif args.model == 'infoGAN':
-            model = infoGAN()
+        elif args.model == 'acgan_v01':
+            model = acgan_v01()
             model.train(dataset_str = args.dataset, 
                         epoch_N = args.epoch_max, 
                         batch_size = args.batch_size)
         
-        elif args.model == 'infoGAN_rgb':
-            model = infoGAN_rgb()
+        elif args.model == 'acgan':
+            model = acgan()
             model.train(dataset_str = args.dataset, 
                         epoch_N = args.epoch_max, 
                         batch_size = args.batch_size)
         
-        elif args.model == 'infoGAN_32x32':
-            model = infoGAN_32x32()
-            model.train(dataset_str = args.dataset, 
-                        epoch_N = args.epoch_max, 
-                        batch_size = args.batch_size)
         
         # elif args.model == 'weedGAN':
         #     model = weedGAN()
