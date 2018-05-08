@@ -2,7 +2,7 @@
 import os
 import sys
 import numpy as np
-import scipy.io
+import scipy.io	
 import zipfile
 import types
 import PIL
@@ -14,12 +14,13 @@ from tensorflow.contrib.learn.python.learn.datasets import mnist
 
 sys.path.append('/home/leminen/Documents/RoboWeedMaps/GAN/weed-gan-v1')
 import src.utils as utils
+import src.data.util_data as util_data
 
 def process_dataset(dataset):
     dir_processedData = 'data/processed/'+ dataset
     utils.checkfolder(dir_processedData)
     
-    if dataset == 'MNIST':
+    if dataset == 'MNIST': 
         # Download the MNIST dataset from source and save it in 'data/raw/mnist'
         data = mnist.read_data_sets('data/raw/MNIST', reshape=False)
 
@@ -30,6 +31,14 @@ def process_dataset(dataset):
         test_images = (data.test.images - 0.5) / 0.5
         _convert_to_tfrecord(test_images, data.test.labels, dataset, 'test')
     
+    if dataset == 'TEST_MNIST':
+        # Download the MNIST dataset from source and save it in 'data/raw/mnist'
+        data = mnist.read_data_sets('data/raw/TEST_MNIST', reshape=False)
+
+        train_images = data.train.images
+        _convert_to_tfrecord2(train_images, data.train.labels, dataset, 'train')
+    
+
     if dataset == 'SVHN':
         dirRaw = 'data/raw/SVHN/'
         for file in os.listdir(dirRaw):
@@ -55,11 +64,11 @@ def process_dataset(dataset):
         
     if dataset == 'PSD_NonSegmented':
         print('Needs implementation to process PSD_NonSegmented data and save into tfrecord')
-#        dirRaw = 'data/raw/PSD_NonSegmented'
-#        for file in os.listdir(dirRaw):
-#            if file.endswith('.zip'):
-#                data = _getCompressedDataset(os.path.join(dirRaw,file))
-#                _convert_to_tfrecord(data.images,data.labels,dataset,file[:-4])
+        dirRaw = 'data/raw/PSD_NonSegmented'
+        for file in os.listdir(dirRaw):
+            if file.endswith('.zip'):
+                data = _getCompressedDataset(os.path.join(dirRaw,file))
+                _convert_to_tfrecord(data.images,data.labels,dataset,file[:-4])
         
 
 
@@ -88,6 +97,31 @@ def _convert_to_tfrecord(images, labels, dataset, name):
 
         writer.write(example.SerializeToString())
     writer.close()
+
+def _convert_to_tfrecord2(images, labels, dataset, name):
+    """Converts a dataset to tfrecords."""
+    num_examples = len(labels)
+
+    if images.shape[0] != num_examples:
+        raise ValueError('Images size %d does not match label size %d.' %
+                         (images.shape[0], num_examples))
+
+    filename = os.path.join('data/processed/',dataset, name + '.tfrecords')
+    print('Writing', filename)
+    writer = tf.python_io.TFRecordWriter(filename)
+
+    shape = [28,28,1]
+    img = tf.placeholder(dtype=tf.uint8, shape=shape)
+    encoded_image = tf.image.encode_png(img)
+
+    with tf.Session() as sess:
+        for index in range(num_examples):
+            temp_img = (images[index]* 255).round().astype(np.uint8)
+            encoded_img = sess.run(encoded_image, feed_dict={img: temp_img})
+            example = util_data.encode_image(encoded_img, 'png'.encode(), labels[index], 28, 28)
+
+            writer.write(example.SerializeToString())
+        writer.close()
     
 ### Define data encoder and decoder for the .tfrecord file[s]. The metodes must be reverse of each other,
 ### Encoder will be used by process_dataset directly whereas the decoder is used by the Model[s] to load data
@@ -125,6 +159,7 @@ def _decodeData(example_proto):
 ###
 def _getCompressedDataset(dirCompressedData,excludeList = None):
     archive = zipfile.ZipFile(dirCompressedData)
+    archive.extractall('/home/leminen/Documents/RoboWeedMaps/GAN/ACGAN_collections/data/processed/PSD_NonSegmented')
     
     images =list()
     labels = list()

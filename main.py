@@ -13,16 +13,18 @@ __author__ = "Simon Leminen Madsen"
 __email__ = "slm@eng.au.dk"
 
 import os
+import GPUtil
 import argparse
 import datetime
 
-from src.data import make_dataset
-from src.data import process_dataset
+from src.data import dataset_manager
 from src.models.BasicModel import BasicModel
 from src.models.acgan_v01 import acgan_v01
 from src.models.acgan import acgan
 from src.visualization import visualize
 
+DEVICE_ID_LIST = GPUtil.getFirstAvailable(attempts = 100, interval = 120)
+os.environ["CUDA_VISIBLE_DEVICES"] = str(DEVICE_ID_LIST[0])
 
 """parsing and configuration"""
 def parse_args():
@@ -65,6 +67,7 @@ def parse_args():
     parser.add_argument('--dataset', 
                         type=str, default='MNIST', 
                         choices=['MNIST',
+                                 'PSD',
                                  'SVHN'],
                         #required = True,
                         help='The name of dataset')
@@ -112,12 +115,12 @@ def main():
     # Make dataset
     if args.make_dataset:
         print('%s - Fetching raw dataset: %s'  % (datetime.datetime.now(), args.dataset))
-        make_dataset.make_dataset(args.dataset)
+        dataset_manager.make_dataset(args.dataset)
         
     # Make dataset
     if args.process_dataset:
         print('%s - Processing raw dataset: %s' % (datetime.datetime.now(), args.dataset))
-        process_dataset.process_dataset(args.dataset)
+        dataset_manager.process_dataset(args.dataset)
         
     # Build and train model
     if args.train_model:

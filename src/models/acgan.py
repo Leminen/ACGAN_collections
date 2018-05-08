@@ -13,10 +13,10 @@ import itertools
 import functools
 import matplotlib.pyplot as plt
 import datetime
+import scipy
 
-sys.path.append('/home/leminen/Documents/RoboWeedMaps/GAN/ACGAN_collections')
-import src.data.process_dataset as process_dataset
 import src.utils as utils
+import src.data.util_data as util_data
 
 tfgan = tf.contrib.gan
 layers = tf.contrib.layers
@@ -36,10 +36,20 @@ class acgan(object):
         utils.checkfolder(self.dir_logs)
         utils.checkfolder(self.dir_results)
 
-        self.unstructured_noise_dim = 110
+        self.unstructured_noise_dim = 62
         self.lbls_dim = 10
+        self.image_dims = [128,128,3]
+
+        self.d_learning_rate = 0.0002
+        self.g_learning_rate = 5 * self.d_learning_rate
+
+        self.n_testsamples = 20
+
+        
+        # self.d_lr = 0.00009
+        # self.g_lr = 0.001
  
-    def __generator(self, inputs, weight_decay = 2.5e-5, is_training = True, reuse=False):
+    def __generator(self, noise, lbls_onehot, weight_decay = 2.5e-5, is_training = True, reuse=False):
         """InfoGAN discriminator network on MNIST digits.
 
         Based on a paper https://arxiv.org/abs/1606.03657 and their code
@@ -57,12 +67,9 @@ class acgan(object):
         Returns:
             A generated image in the range [-1, 1].
         """
-        with tf.variable_scope("generator") as scope:
-            if reuse:
-                scope.reuse_variables()
+        with tf.variable_scope("generator", reuse=reuse):
 
-            unstructured_noise, lbls_onehot = inputs
-            all_noise = tf.concat([unstructured_noise, lbls_onehot], axis=1)
+            all_noise = tf.concat([noise, lbls_onehot], axis=1)
         
             with framework.arg_scope(
                 [layers.fully_connected, layers.conv2d_transpose],
@@ -76,7 +83,7 @@ class acgan(object):
                 net = layers.conv2d_transpose(net, 256, [5, 5], stride = 2)
                 net = layers.conv2d_transpose(net, 192, [5, 5], stride = 2)
                 net = layers.conv2d_transpose(net,  64, [5, 5], stride = 2)
-                net = layers.conv2d_transpose(net,   3, [8, 8], stride = 2, normalizer_fn = None, activation_fn = tf.tanh)
+                net = layers.conv2d_transpose(net, self.image_dims[2], [8, 8], stride = 2, normalizer_fn = None, activation_fn = tf.tanh)
 
                 # Make sure that generator output is in the same range as `inputs`
                 # ie [-1, 1].
@@ -104,22 +111,27 @@ class acgan(object):
             Logits for the probability that the image is real, and logits for the probability
                 that the images belong to each class
         """
-        with tf.variable_scope("discriminator") as scope:
-            if reuse:
-                scope.reuse_variables()
+        with tf.variable_scope("discriminator", reuse = reuse):
 
             with framework.arg_scope(
                 [layers.conv2d, layers.fully_connected],
                 activation_fn=leaky_relu, normalizer_fn=layers.batch_norm,
                 weights_regularizer=layers.l2_regularizer(weight_decay),
-                biases_regularizer=layers.l2_regularizer(weight_decay)):
+                biases_regularizer=layers.l2_regularizer(weight_decay)),\
+            framework.arg_scope([layers.batch_norm, layers.dropout], is_training=is_training):
                 net = layers.conv2d(img,  16, [3,3], stride = 2, normalizer_fn = None, padding='SAME')
+                net = layers.dropout(net)
                 net = layers.conv2d(net,  32, [3,3], stride = 1, padding='VALID')
+                net = layers.dropout(net)
                 net = layers.conv2d(net,  64, [3,3], stride = 2, padding='SAME')
+                net = layers.dropout(net)
                 net = layers.conv2d(net, 128, [3,3], stride = 1, padding='VALID')
+                net = layers.dropout(net)
                 net = layers.conv2d(net, 256, [3,3], stride = 2, padding='SAME')
+                net = layers.dropout(net)
                 net = layers.conv2d(net, 512, [3,3], stride = 1, padding='VALID')
-                net = layers.flatten(net)
+                net = layers.dropout(net)
+                net = tf.reshape(net,[-1, 13*13*512])
 
                 logits_source = layers.fully_connected(net, 1, normalizer_fn = None, activation_fn = None)
                 logits_class = layers.fully_connected(net, class_dim, normalizer_fn = None, activation_fn=None)
@@ -127,20 +139,17 @@ class acgan(object):
                 return logits_source, logits_class
     
 
-    def _create_inference(self, images, labels, z):
+    def _create_inference(self, images, labels, noise):
         """ Define the inference model for the network
         Args:
     
         Returns:
         """
-        generated_images = self.__generator([z, labels])
+        generated_images = self.__generator(noise, labels)
         logits_source_real, logits_class_real = self.__discriminator(images)
         logits_source_fake, logits_class_fake = self.__discriminator(generated_images, reuse = True)
 
-        test_input = self._genTestInput(self.lbls_dim, grid_dim = 10)
-        test_images = self.__generator(test_input,is_training=False, reuse=True)
-
-        return [logits_source_real, logits_source_fake], [logits_class_real, logits_class_fake], test_images
+        return [logits_source_real, logits_source_fake], [logits_class_real, logits_class_fake]
     
     def _create_losses(self, logits_source, logits_class, labels):
         """ Define loss function[s] for the network
@@ -155,29 +164,39 @@ class acgan(object):
         # Source losses discriminator
         loss_source_real_d = tf.reduce_mean(
             tf.nn.sigmoid_cross_entropy_with_logits(
-                labels = tf.ones_like(logits_source_real), logits = logits_source_real
+                labels = tf.ones_like(logits_source_real), 
+                logits = logits_source_real,
+                name = 'Loss_source_real_d'
             ))
         
         loss_source_fake_d = tf.reduce_mean(
             tf.nn.sigmoid_cross_entropy_with_logits(
-                labels = tf.zeros_like(logits_source_fake), logits = logits_source_fake
+                labels = tf.zeros_like(logits_source_fake), 
+                logits = logits_source_fake,
+                name = 'Loss_source_fake_d'
             ))
         
         # Source loss generator
         loss_source_fake_g = tf.reduce_mean(
             tf.nn.sigmoid_cross_entropy_with_logits(
-                labels = tf.ones_like(logits_source_fake), logits = logits_source_fake
+                labels = tf.ones_like(logits_source_fake), 
+                logits = logits_source_fake,
+                name = 'Loss_source_fake_g'
             ))
 
         # Class losses
         loss_class_real = tf.reduce_mean(
             tf.nn.softmax_cross_entropy_with_logits(
-                labels = labels, logits = logits_class_real
+                labels = labels, 
+                logits = logits_class_real,
+                name = 'Loss_class_real'
         ))
 
         loss_class_fake = tf.reduce_mean(
             tf.nn.softmax_cross_entropy_with_logits(
-                labels = labels, logits = logits_class_fake
+                labels = labels, 
+                logits = logits_class_fake,
+                name = 'Loss_class_fake'
         ))
 
         loss_discriminator = loss_source_real_d + loss_source_fake_d + loss_class_real + loss_class_fake
@@ -200,43 +219,36 @@ class acgan(object):
         g_vars = tf.get_collection(
             tf.GraphKeys.TRAINABLE_VARIABLES, scope='generator')
 
-        # train discriminator
-        optimizer_discriminator = tf.train.AdamOptimizer(learning_rate = 0.00009, beta1 = 0.5)
-        train_op_discriminator = optimizer_discriminator.minimize(loss_discriminator, var_list=d_vars)
+        with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS)):
+            # create train discriminator operation
+            optimizer_discriminator = tf.train.AdamOptimizer(learning_rate = self.d_learning_rate, beta1 = 0.5)
+            train_op_discriminator = optimizer_discriminator.minimize(loss_discriminator, var_list=d_vars)
 
-        # train generator
-        optimizer_generator = tf.train.AdamOptimizer(learning_rate = 0.001, beta1 = 0.5)
-        train_op_generator = optimizer_generator.minimize(loss_generator, var_list=g_vars)
+            # create train generator operation
+            optimizer_generator = tf.train.AdamOptimizer(learning_rate = self.g_learning_rate, beta1 = 0.5)
+            train_op_generator = optimizer_generator.minimize(loss_generator, var_list=g_vars)
 
-        return train_op_discriminator, train_op_generator
+            return train_op_discriminator, train_op_generator
         
-    def _create_summaries(self, loss_discriminator, loss_generator, test_images):
+    def _create_summaries(self, loss_discriminator, loss_generator, test_noise, test_labels):
         """ Create summaries for the network
         Args:
     
         Returns:
         """
+        test_images = self.__generator(test_noise, test_labels, is_training=False, reuse=True)
 
         # Create image summaries to inspect the variation due to categorical latent codes
         with tf.name_scope("SummaryImages_ClassVariation"):
-            # grid_size = 10
-            # images_test = []
-            # for class_var in range(0,self.lbls_dim):
-            #     with tf.variable_scope('Generator', reuse=True):
-            #         test_input = self._genTestInput(class_var, grid_size)
-            #         images_cat = self.__generator(test_input,is_training=False, reuse=True)
-            #         images_cat = tfgan.eval.image_reshaper(tf.concat(images_cat, 0), num_cols=grid_size)
-            #         images_test.append(images_cat[0,:,:,:])
-
-            test_images = tfgan.eval.image_reshaper(tf.concat(test_images, 0), num_cols=10)
-            summary_op_img = tf.summary.image('test_images', test_images, max_outputs = 20)
+            summary_img = tfgan.eval.image_reshaper(tf.concat(test_images, 0), num_cols=self.lbls_dim)
+            summary_op_img = tf.summary.image('summary_images', summary_img, max_outputs = 20)
 
         ### Add loss summaries
         with tf.name_scope("SummaryLosses"):
             summary_op_dloss = tf.summary.scalar('loss_discriminator', loss_discriminator)
             summary_op_gloss = tf.summary.scalar('loss_generator', loss_generator)
             
-        return summary_op_dloss, summary_op_gloss, summary_op_img
+        return summary_op_dloss, summary_op_gloss, summary_op_img, summary_img
                                                                  
         
     def train(self, dataset_str, epoch_N, batch_size):
@@ -248,9 +260,9 @@ class acgan(object):
         
         # Use dataset for loading in datasamples from .tfrecord (https://www.tensorflow.org/programmers_guide/datasets#consuming_tfrecord_data)
         # The iterator will get a new batch from the dataset each time a sess.run() is executed on the graph.
-        filenames = ['data/processed/' + dataset_str + '/train.tfrecords']
+        filenames = ['data/processed/' + dataset_str + '/train.tfrecord']
         dataset = tf.data.TFRecordDataset(filenames)
-        dataset = dataset.map(process_dataset._decodeData)      # decoding the tfrecord
+        dataset = dataset.map(util_data.decode_image)      # decoding the tfrecord
         dataset = dataset.map(self._genLatentCodes)
         dataset = dataset.shuffle(buffer_size = 10000, seed = None)
         dataset = dataset.batch(batch_size = batch_size)
@@ -260,7 +272,7 @@ class acgan(object):
         # Create input placeholders
         input_images = tf.placeholder(
             dtype = tf.float32, 
-            shape = [None,28,28,1], 
+            shape = [None] + self.image_dims, 
             name = 'input_images')
         input_lbls = tf.placeholder(
             dtype = tf.float32,   
@@ -270,15 +282,30 @@ class acgan(object):
             dtype = tf.float32, 
             shape = [None, self.unstructured_noise_dim], 
             name = 'input_unstructured_noise')
+        input_test_lbls = tf.placeholder(
+            dtype = tf.float32, 
+            shape = [self.n_testsamples * self.lbls_dim, self.lbls_dim], 
+            name = 'input_test_lbls')
+        input_test_noise = tf.placeholder(
+            dtype = tf.float32, 
+            shape = [self.n_testsamples * self.lbls_dim, self.unstructured_noise_dim], 
+            name = 'input_test_noise')
 
-        images = tf.image.grayscale_to_rgb(input_images)
+        # images = tf.image.grayscale_to_rgb(input_images)
+        images = input_images
         images = tf.image.resize_images(images, size = [128, 128])        
         
         # Define model, loss, optimizer and summaries.
-        logits_source, logits_class, test_images= self._create_inference(images, input_lbls, input_unstructured_noise)
+        logits_source, logits_class = self._create_inference(images, input_lbls, input_unstructured_noise)
         loss_discriminator, loss_generator = self._create_losses(logits_source, logits_class, input_lbls)
         train_op_discriminator, train_op_generator = self._create_optimizer(loss_discriminator, loss_generator)
-        summary_op_dloss, summary_op_gloss, summary_op_img = self._create_summaries(loss_discriminator, loss_generator, test_images)
+        summary_op_dloss, summary_op_gloss, summary_op_img, summary_img = self._create_summaries(loss_discriminator, loss_generator, input_test_noise, input_test_lbls)
+
+        # show network architecture
+        utils.show_all_variables()
+
+        # create constant test variable to inspect changes in the model
+        test_noise, test_lbls = self._genTestInput(self.lbls_dim, n_samples = self.n_testsamples)
 
         with tf.Session() as sess:
             # Initialize all model Variables.
@@ -303,9 +330,13 @@ class acgan(object):
 
                 # Test model output before any training
                 if epoch_n == 0:
-                    summaryImg = sess.run(summary_op_img)
-                    writer.add_summary(summaryImg, global_step=-1)
+                    summaryImg_tb, summaryImg = sess.run(
+                        [summary_op_img, summary_img],
+                        feed_dict={input_test_noise:    test_noise,
+                                   input_test_lbls:     test_lbls})
 
+                    writer.add_summary(summaryImg_tb, global_step=-1)
+                    self.save_image_local(summaryImg, 'Epoch_' + str(-1))
 
                 # Initiate or Re-initiate iterator
                 sess.run(iterator.initializer)
@@ -314,30 +345,36 @@ class acgan(object):
                 ### Update model
                 print(datetime.datetime.now(),'- Running training epoch no:', epoch_n)
                 while True:
+                # for idx in range(0, num_batches):
                     try:
                         image_batch, lbl_batch, unst_noise_batch = sess.run(input_getBatch)
 
                         _, summary_dloss = sess.run(
                             [train_op_discriminator, summary_op_dloss],
-                             feed_dict={input_images:             image_batch,
-                                        input_lbls:               lbl_batch, 
-                                        input_unstructured_noise: unst_noise_batch})
+                            feed_dict={input_images:             image_batch,
+                                    input_lbls:               lbl_batch,
+                                    input_unstructured_noise: unst_noise_batch})
                                         
                         writer.add_summary(summary_dloss, global_step=interationCnt)
 
                         _, summary_gloss = sess.run(
                             [train_op_generator, summary_op_gloss],
-                             feed_dict={input_images:             image_batch,
-                                        input_lbls:               lbl_batch, 
-                                        input_unstructured_noise: unst_noise_batch})
+                            feed_dict={input_images:             image_batch,
+                                    input_lbls:               lbl_batch,
+                                    input_unstructured_noise: unst_noise_batch})
 
                         writer.add_summary(summary_gloss, global_step=interationCnt)
                         interationCnt += 1
 
                     except tf.errors.OutOfRangeError:
                         # Test current model
-                        summaryImg = sess.run(summary_op_img)
-                        writer.add_summary(summaryImg, global_step=epoch_n)
+                        summaryImg_tb, summaryImg = sess.run(
+                            [summary_op_img, summary_img],
+                            feed_dict={input_test_noise:    test_noise,
+                                        input_test_lbls:     test_lbls})
+
+                        writer.add_summary(summaryImg_tb, global_step=epoch_n)
+                        self.save_image_local(summaryImg, 'Epoch_' + str(epoch_n))
 
                         break
                 
@@ -358,7 +395,7 @@ class acgan(object):
             sess.run(tf.global_variables_initializer())
     
     
-    def _genLatentCodes(self, image_proto, lbl_proto):
+    def _genLatentCodes(self, image_proto, lbl_proto, class_proto, height_proto, width_proto):
         """ Augment dataset entries. Adds two continuous latent 
             codes for the network to estimate. Also generates a GAN noise
             vector per data sample.
@@ -367,14 +404,24 @@ class acgan(object):
         Returns:
         """
     
-        image = image_proto
+        # image = image_proto
+
+        scalar = tf.random_uniform([3],minval = 0, maxval = 1)
+        mask = tf.tile(scalar,[28*28])
+        mask = tf.reshape(mask,[28,28,3])
+        image = tf.image.grayscale_to_rgb(image_proto)
+        image = tf.multiply(image, mask)
+
+        image = tf.image.resize_images(image, size = [128, 128])  
+
         lbl = tf.one_hot(lbl_proto, self.lbls_dim)
 
-        unstructured_noise = tf.random_normal([self.unstructured_noise_dim])
+        # unstructured_noise = tf.random_normal([self.unstructured_noise_dim])
+        unstructured_noise = tf.random_uniform([self.unstructured_noise_dim], minval = -1, maxval = 1)
     
         return image, lbl, unstructured_noise
     
-    def _genTestInput(self, lbls_dim, grid_dim):
+    def _genTestInput(self, lbls_dim, n_samples):
         """ Defines test code and noise generator. Generates laten codes based
             on a testCategory input.
         Args:
@@ -382,13 +429,19 @@ class acgan(object):
         Returns:
         """
 
-        n_images = grid_dim ** 2
+        # Create repeating noise vector, so a sample for each class is created using the same noise
+        test_unstructured_noise = np.random.uniform(low = -1.0, high = 1, size = [n_samples, self.unstructured_noise_dim])
+        test_unstructured_noise = np.repeat(test_unstructured_noise, lbls_dim, axis = 0)
+        
+        # Create one-hot encoded label for each class and tile along axis 0
+        test_labels = np.eye(lbls_dim)
+        test_labels = np.tile(test_labels,(n_samples,1))
 
-        test_unstructured_noise = np.random.normal(size=[n_images, self.unstructured_noise_dim])
-        test_class_lbls = []
-        for lbl in range(lbls_dim):
-            test_class_lbls = np.concatenate((test_class_lbls, np.tile(lbl,grid_dim)))
+        return test_unstructured_noise, test_labels
 
-        test_class_lbls = tf.one_hot(test_class_lbls, self.lbls_dim)
+    def save_image_local(self, image, infostr):
+        datestr = datetime.datetime.now().strftime('%Y%m%d_T%H%M%S')
+        path = self.dir_results + '/' + datestr + '_' + infostr + '.png'
+        image = np.squeeze(image)
+        scipy.misc.imsave(path, image)
 
-        return test_unstructured_noise, test_class_lbls

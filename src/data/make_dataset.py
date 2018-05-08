@@ -33,9 +33,9 @@ def make_dataset(dataset):
     #     urllib.request.urlretrieve('http://vision.eng.au.dk/data/WeedData/Segmented.zip',
     #                                'data/raw/PSD_Segmented/data.zip')
     
-    # if dataset == 'PSD_NonSegmented':
-    #     # Download the Plant Seedlings Dataset NonSegmented from source (http://vision.eng.au.dk/data/WeedData/Nonsegmented.zip) 
-    #     # and save it in data/raw/Plant_Seedlings_Dataset_NonSegmented
+    if dataset == 'PSD_NonSegmented':
+        # Download the Plant Seedlings Dataset NonSegmented from source (http://vision.eng.au.dk/data/WeedData/Nonsegmented.zip) 
+        # and save it in data/raw/Plant_Seedlings_Dataset_NonSegmented
         
-    #     urllib.request.urlretrieve('http://vision.eng.au.dk/data/WeedData/Nonsegmented.zip',
-    #                                'data/raw/PSD_NonSegmented/data.zip')
+        urllib.request.urlretrieve('http://vision.eng.au.dk/data/WeedData/Nonsegmented.zip',
+                                   'data/raw/PSD_NonSegmented/data.zip')
