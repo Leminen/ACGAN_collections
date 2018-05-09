@@ -396,7 +396,7 @@ class acgan(object):
             sess.run(tf.global_variables_initializer())
     
     
-    def _genLatentCodes(self, image_proto, lbl_proto, class_proto, height_proto, width_proto):
+    def _genLatentCodes(self, image_proto, lbl_proto, class_proto, height_proto, width_proto, channels_proto, origin_proto):
         """ Augment dataset entries. Adds two continuous latent 
             codes for the network to estimate. Also generates a GAN noise
             vector per data sample.
