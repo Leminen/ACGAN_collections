@@ -260,7 +260,8 @@ class acgan(object):
         
         # Use dataset for loading in datasamples from .tfrecord (https://www.tensorflow.org/programmers_guide/datasets#consuming_tfrecord_data)
         # The iterator will get a new batch from the dataset each time a sess.run() is executed on the graph.
-        filenames = ['data/processed/' + dataset_str + '/train.tfrecord']
+        # filenames = ['data/processed/' + dataset_str + '/train.tfrecord']
+        filenames = ['data/processed/' + dataset_str + '/Nonsegmented.tfrecord']
         dataset = tf.data.TFRecordDataset(filenames)
         dataset = dataset.map(util_data.decode_image)      # decoding the tfrecord
         dataset = dataset.map(self._genLatentCodes)
@@ -406,12 +407,13 @@ class acgan(object):
     
         # image = image_proto
 
-        scalar = tf.random_uniform([3],minval = 0, maxval = 1)
-        mask = tf.tile(scalar,[28*28])
-        mask = tf.reshape(mask,[28,28,3])
-        image = tf.image.grayscale_to_rgb(image_proto)
-        image = tf.multiply(image, mask)
+        # scalar = tf.random_uniform([3],minval = 0, maxval = 1)
+        # mask = tf.tile(scalar,[28*28])
+        # mask = tf.reshape(mask,[28,28,3])
+        # image = tf.image.grayscale_to_rgb(image_proto)
+        # image = tf.multiply(image, mask)
 
+        image = image_proto
         image = tf.image.resize_images(image, size = [128, 128])  
 
         lbl = tf.one_hot(lbl_proto, self.lbls_dim)

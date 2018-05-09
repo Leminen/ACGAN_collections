@@ -43,16 +43,19 @@ def float_feature(values):
     return tf.train.Feature(float_list=tf.train.FloatList(value=values))
 
 
-def encode_image(image_data, image_format, class_lbl, height, width, class_text = None):
+def encode_image(image_data, image_format, class_lbl, height, width, channels = 0, class_text = None, origin = None):
     """ Encodes image data and label and returns a tfrecord example
     Args:
       image_data:   Encoded image (eg. tf.image.encode_png)
       image_format: Format in which the image is encoded
+      class_lbl:    Class label to which the image belong
       height:       Image height
       width:        Image width
-      class_lbl:    Class label to which the image belong
+      channels:     Image channels
       class_text:   Readable class label, if not avaliable 
                     defaults to str(class_lbl)
+      origin:       Filename of the original data file 
+                    (Defaults to b'00', if unavailable)
     
     Returns:
       A tfrecord example
@@ -60,6 +63,8 @@ def encode_image(image_data, image_format, class_lbl, height, width, class_text 
 
     if class_text == None:
         class_text = str(class_lbl).encode()
+    if origin == None:
+        origin = '00'.encode()
 
     features = tf.train.Features(
         feature = {
@@ -69,6 +74,8 @@ def encode_image(image_data, image_format, class_lbl, height, width, class_text 
             'image/class/text': bytes_feature(class_text),
             'image/height':     int64_feature(height),
             'image/width':      int64_feature(width),
+            'image/channels':   int64_feature(channels),
+            'image/origin/filename': bytes_feature(origin),
         })
 
     return tf.train.Example(features = features)
@@ -88,6 +95,9 @@ def decode_image(example_proto):
       class_text: Readable class label
       height:     Image height
       width:      Image width
+      channels:   Image channels
+      origin:     Filename of the original data file 
+                  (Defaults to b'00', if unavailable)
     """
 
     features = {
@@ -96,15 +106,22 @@ def decode_image(example_proto):
         'image/class/label':tf.FixedLenFeature([], tf.int64),
         'image/class/text': tf.FixedLenFeature([], tf.string),
         'image/height':     tf.FixedLenFeature([], tf.int64),
-        'image/width':      tf.FixedLenFeature([], tf.int64)
+        'image/width':      tf.FixedLenFeature([], tf.int64),
+        'image/channels':    tf.FixedLenFeature([], tf.int64),
+        'image/origin/filename': tf.FixedLenFeature([], tf.string)
     }
 
     # parsed_example = tf.parse_example(example_proto, features)
     parsed_example = tf.parse_single_example(example_proto, features)
 
-    image_format = parsed_example['image/format']
-
     image = parsed_example['image/encoded']
+    image_format = parsed_example['image/format']
+    class_lbl = parsed_example['image/class/label']
+    class_text = parsed_example['image/class/text']
+    height = parsed_example['image/height']
+    width = parsed_example['image/width']
+    channels = parsed_example['image/channels']
+    origin = parsed_example['image/origin/filename']
 
     image = tf.case(
         pred_fn_pairs = [
@@ -114,10 +131,4 @@ def decode_image(example_proto):
 
     image = (tf.to_float(image) - 128.0) / 128.0
 
-    
-    class_lbl = parsed_example['image/class/label']
-    class_text = parsed_example['image/class/text']
-    height = parsed_example['image/height']
-    width = parsed_example['image/width']
-
-    return image, class_lbl, class_text, height, width
+    return image, class_lbl, class_text, height, width, channels, origin

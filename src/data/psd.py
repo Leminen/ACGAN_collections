@@ -32,23 +32,37 @@ _NUM_TEST_SAMPLES = 10000
 
 
 class ImageReader(object):
-  """Helper class that provides TensorFlow image coding utilities."""
+    """Helper class that provides TensorFlow image coding utilities."""
 
-  def __init__(self):
-    # Initializes function that decodes RGB PNG data.
-    self._decode_png_data = tf.placeholder(dtype=tf.string)
-    self._decode_png = tf.image.decode_png(self._decode_png_data, channels=3)
+    def __init__(self):
+        # Initializes function that decodes RGB PNG data.
+        self._decode_png_data = tf.placeholder(dtype=tf.string)
+        self._decode_png = tf.image.decode_png(self._decode_png_data, channels=3)
+        self._encode_png = tf.image.encode_png(self._decode_png)
 
-  def read_image_dims(self, sess, image_data):
-    image = self.decode_png(sess, image_data)
-    return image.shape[0], image.shape[1]
+    def truncate_image(self, sess, image_data):
+        image, reencoded_image = sess.run(
+            [self._decode_png, self._encode_png],
+            feed_dict={self._decode_png_data: image_data})
+        assert len(image.shape) == 3
+        assert image.shape[2] == 3
+        return reencoded_image, image.shape[0], image.shape[1], image.shape[2]
 
-  def decode_png(self, sess, image_data):
-    image = sess.run(self._decode_png,
-                     feed_dict={self._decode_png_data: image_data})
-    assert len(image.shape) == 3
-    assert image.shape[2] == 3
-    return image
+    def read_image_dims(self, sess, image_data):
+        image = self.decode_png(sess, image_data)
+        return image.shape[0], image.shape[1], image.shape[2]
+
+    def decode_png(self, sess, image_data):
+        image = sess.run(self._decode_png,
+            feed_dict={self._decode_png_data: image_data})
+        assert len(image.shape) == 3
+        assert image.shape[2] == 3
+        return image
+
+    def encode_png(self, sess, image_data):
+        image_data = sess.run(self._encode_png,
+            feed_dict={self._decode_png_data: image_data})
+
 
 def _get_filenames_and_classes(dataset_dir, setname):
     """Returns a list of filenames and inferred class names.
@@ -100,7 +114,7 @@ def _convert_to_tfrecord(filenames, class_dict, tfrecord_writer):
 
             # Read the filename:
             encoded_img = tf.gfile.FastGFile(filenames[i], 'rb').read()
-            height, width = image_reader.read_image_dims(sess, encoded_img)
+            encoded_img, height, width, channels = image_reader.truncate_image(sess, encoded_img)#  .read_image_dims(sess, encoded_img)
 
             class_name = os.path.basename(os.path.dirname(filenames[i]))
             label = class_dict[class_name]
@@ -111,7 +125,10 @@ def _convert_to_tfrecord(filenames, class_dict, tfrecord_writer):
                 class_lbl = label,
                 class_text = class_name.encode(),
                 height = height,
-                width = width)
+                width = width,
+                channels = channels,
+                origin = filenames[i].encode()
+                )
 
             tfrecord_writer.write(example.SerializeToString())
 
