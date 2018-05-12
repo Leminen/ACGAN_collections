@@ -16,6 +16,7 @@ import os
 import GPUtil
 import argparse
 import datetime
+import shlex
 
 from src.data import dataset_manager
 from src.models.BasicModel import BasicModel
@@ -33,7 +34,7 @@ def parse_args():
 # Define default pipeline
 # ----------------------------------------------------------------------------------------------------------------------
 
-    desc = "Pipeline for running Tensorflow implementation of infoGAN"
+    desc = "Pipeline for running Tensorflow implementation of ACGAN"
     parser = argparse.ArgumentParser(description=desc)
     
     parser.add_argument('--make_dataset', 
@@ -84,9 +85,9 @@ def parse_args():
 # Define the arguments for the training
 # ----------------------------------------------------------------------------------------------------------------------
 
-    # parser.add_argument('--hparams',
-    #                     type=str,
-    #                     help='Comma separated list of "name=value" pairs.')
+    parser.add_argument('--hparams',
+                        type=str, default = '',
+                        help='CLI arguments for the model wrapped in a string')
 
 
     return check_args(parser.parse_args())
@@ -103,7 +104,6 @@ def check_args(args):
 #            exit()
         
     return args
-
 
 """main"""
 def main():
@@ -132,15 +132,15 @@ def main():
             model.train(dataset_str = args.dataset, epoch_N = args.epoch_max, batch_N = 64)
                
         elif args.model == 'acgan_v01':
-            model = acgan_v01()
-            model.train(dataset_str = args.dataset, 
-                        epoch_N = args.epoch_max, 
+            model = acgan_v01(dataset=args.dataset, 
+                              hparams_string=args.hparams)
+            model.train(epoch_N = args.epoch_max, 
                         batch_size = args.batch_size)
         
         elif args.model == 'acgan':
-            model = acgan()
-            model.train(dataset_str = args.dataset, 
-                        epoch_N = args.epoch_max, 
+            model = acgan(dataset = args.dataset, 
+                          hparams_string = args.hparams)
+            model.train(epoch_N = args.epoch_max, 
                         batch_size = args.batch_size)
         
         

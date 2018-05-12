@@ -14,6 +14,8 @@ import functools
 import matplotlib.pyplot as plt
 import datetime
 import scipy
+import argparse
+import shlex
 
 import src.utils as utils
 import src.data.util_data as util_data
@@ -25,9 +27,45 @@ ds = tf.contrib.distributions
 
 leaky_relu = lambda net: tf.nn.leaky_relu(net, alpha=0.01)
 
+def hparams_parser(hparams_string):
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument('--lr_discriminator', 
+                        type=float, 
+                        default='0.0002',
+                        help='discriminator learning rate')
+    
+    parser.add_argument('--lr_generator', 
+                        type=float, 
+                        default='0.001',
+                        help='generator learning rate')
+
+    parser.add_argument('--n_testsamples', 
+                        type=int, 
+                        default='20',
+                        help='number of samples in test images per class')
+
+    parser.add_argument('--unstructured_noise_dim', 
+                        type=int, 
+                        default='62',
+                        help='number of random input variables to the generator')
+
+    parser.add_argument('--id',
+                        type=str,
+                        default = None,
+                        help = 'Optional ID to distinguise experiments')
+
+    return parser.parse_args(shlex.split(hparams_string))
+
 class acgan_v01(object):
-    def __init__(self):
+    def __init__(self, dataset, hparams_string):
+
+        args = hparams_parser(hparams_string)
+
         self.model = 'acgan_v01'
+        if args.id != None:
+            self.model = self.model + '_' + args.id
+
         self.dir_logs        = 'models/' + self.model + '/logs'
         self.dir_checkpoints = 'models/' + self.model + '/checkpoints'
         self.dir_results     = 'models/' + self.model + '/results'
@@ -36,14 +74,19 @@ class acgan_v01(object):
         utils.checkfolder(self.dir_logs)
         utils.checkfolder(self.dir_results)
 
-        self.unstructured_noise_dim = 62
+        if dataset == 'MNIST':
+            self.dateset_filenames =  ['data/processed/MNIST/train.tfrecord']
+        else:
+            raise ValueError('Selected Dataset is not supported by model: acgan_v01')
+
+        self.unstructured_noise_dim = args.unstructured_noise_dim
         self.lbls_dim = 10
         self.image_dims = [28,28,1]
 
-        self.d_learning_rate = 0.0002
-        self.g_learning_rate = 5 * self.d_learning_rate
+        self.d_learning_rate = args.lr_discriminator
+        self.g_learning_rate = args.lr_generator
 
-        self.n_testsamples = 20
+        self.n_testsamples = args.n_testsamples
  
     def __generator(self, noise, lbls_onehot, weight_decay = 2.5e-5, is_training = True, reuse=False):
         """InfoGAN discriminator network on MNIST digits.
@@ -247,7 +290,7 @@ class acgan_v01(object):
         return summary_op_dloss, summary_op_gloss, summary_op_img, summary_img
                                                                  
         
-    def train(self, dataset_str, epoch_N, batch_size):
+    def train(self, epoch_N, batch_size):
         """ Run training of the network
         Args:
     
@@ -256,8 +299,7 @@ class acgan_v01(object):
         
         # Use dataset for loading in datasamples from .tfrecord (https://www.tensorflow.org/programmers_guide/datasets#consuming_tfrecord_data)
         # The iterator will get a new batch from the dataset each time a sess.run() is executed on the graph.
-        filenames = ['data/processed/' + dataset_str + '/train.tfrecord']
-        dataset = tf.data.TFRecordDataset(filenames)
+        dataset = tf.data.TFRecordDataset(self.dateset_filenames)
         dataset = dataset.map(util_data.decode_image)      # decoding the tfrecord
         dataset = dataset.map(self._genLatentCodes)
         dataset = dataset.shuffle(buffer_size = 10000, seed = None)
@@ -385,7 +427,7 @@ class acgan_v01(object):
             sess.run(tf.global_variables_initializer())
     
     
-    def _genLatentCodes(self, image_proto, lbl_proto, class_proto, height_proto, width_proto):
+    def _genLatentCodes(self, image_proto, lbl_proto, class_proto, height_proto, width_proto, channels_proto, origin_proto):
         """ Augment dataset entries. Adds two continuous latent 
             codes for the network to estimate. Also generates a GAN noise
             vector per data sample.
@@ -395,6 +437,7 @@ class acgan_v01(object):
         """
     
         image = image_proto
+        image = tf.image.resize_images(image, size = [28,28])
         lbl = tf.one_hot(lbl_proto, self.lbls_dim)
 
         unstructured_noise = tf.random_normal([self.unstructured_noise_dim])
