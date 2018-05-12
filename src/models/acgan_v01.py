@@ -125,7 +125,7 @@ class acgan_v01(object):
         
                 return net
     
-    def __discriminator(self, img, weight_decay=2.5e-5, class_dim=10, is_training=True, reuse = False):
+    def __discriminator(self, img, weight_decay=2.5e-5, is_training=True, reuse = False):
         """InfoGAN discriminator network on MNIST digits.
     
         Based on a paper https://arxiv.org/abs/1606.03657 and their code
@@ -168,7 +168,7 @@ class acgan_v01(object):
 
                 # Compute logits for each category of categorical latent.
                 logits_class = layers.fully_connected(
-                    encoder, class_dim, activation_fn=None)
+                    encoder, self.lbls_dim, activation_fn=None)
 
                 return logits_source, logits_class
     

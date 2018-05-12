@@ -135,7 +135,7 @@ class acgan(object):
         
                 return net
     
-    def __discriminator(self, img, weight_decay=2.5e-5, class_dim=10, is_training=True, reuse = False):
+    def __discriminator(self, img, weight_decay=2.5e-5, is_training=True, reuse = False):
         """InfoGAN discriminator network on MNIST digits.
     
         Based on a paper https://arxiv.org/abs/1606.03657 and their code
@@ -179,7 +179,7 @@ class acgan(object):
                 net = tf.reshape(net,[-1, 13*13*512])
 
                 logits_source = layers.fully_connected(net, 1, normalizer_fn = None, activation_fn = None)
-                logits_class = layers.fully_connected(net, class_dim, normalizer_fn = None, activation_fn=None)
+                logits_class = layers.fully_connected(net, self.lbls_dim, normalizer_fn = None, activation_fn=None)
 
                 return logits_source, logits_class
     
