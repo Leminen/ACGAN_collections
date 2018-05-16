@@ -385,8 +385,6 @@ class acgan_W(object):
                 # for idx in range(0, num_batches):
                     try:
                         for i in range(0,5):
-                            sess.run(clip_discriminator_var_op)
-
                             image_batch, lbl_batch, unst_noise_batch = sess.run(input_getBatch)
 
                             _, summary_dloss = sess.run(
@@ -394,6 +392,8 @@ class acgan_W(object):
                                 feed_dict={input_images:             image_batch,
                                         input_lbls:               lbl_batch,
                                         input_unstructured_noise: unst_noise_batch})
+                            
+                            sess.run(clip_discriminator_var_op)
                                         
                         writer.add_summary(summary_dloss, global_step=interationCnt)
 
