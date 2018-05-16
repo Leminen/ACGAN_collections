@@ -22,6 +22,7 @@ from src.data import dataset_manager
 from src.models.BasicModel import BasicModel
 from src.models.acgan_v01 import acgan_v01
 from src.models.acgan import acgan
+from src.models.acgan_W import acgan_W
 from src.visualization import visualize
 
 DEVICE_ID_LIST = GPUtil.getFirstAvailable(attempts = 100, interval = 120)
@@ -59,9 +60,10 @@ def parse_args():
 
     parser.add_argument('--model', 
                         type=str, 
-                        default='infoGAN', 
+                        default='acgan', 
                         choices=['acgan_v01', 
-                                 'acgan'],
+                                 'acgan', 
+                                 'acgan_W'],
                         #required = True,
                         help='The name of the network model')
 
@@ -140,6 +142,12 @@ def main():
         elif args.model == 'acgan':
             model = acgan(dataset = args.dataset, 
                           hparams_string = args.hparams)
+            model.train(epoch_N = args.epoch_max, 
+                        batch_size = args.batch_size)
+
+        elif args.model == 'acgan_W':
+            model = acgan_W(dataset = args.dataset, 
+                            hparams_string = args.hparams)
             model.train(epoch_N = args.epoch_max, 
                         batch_size = args.batch_size)
         

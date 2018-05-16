@@ -57,12 +57,12 @@ def hparams_parser(hparams_string):
 
     return parser.parse_args(shlex.split(hparams_string))
 
-class acgan(object):
+class acgan_W(object):
     def __init__(self, dataset, hparams_string):
 
         args = hparams_parser(hparams_string)
 
-        self.model = 'acgan'
+        self.model = 'acgan_W'
         if args.id != None:
             self.model = self.model + '_' + args.id
 
@@ -83,13 +83,11 @@ class acgan(object):
             self.dateset_filenames = ['data/processed/PSD/Nonsegmented.tfrecord']
             self.lbls_dim = 12
             self.image_dims = [128,128,3]
-
         else:
-            raise ValueError('Selected Dataset is not supported by model: acgan_v01')
+            raise ValueError('Selected Dataset is not supported by model: acgan_W')
 
         self.unstructured_noise_dim = args.unstructured_noise_dim
         
-
         self.d_learning_rate = args.lr_discriminator
         self.g_learning_rate = args.lr_generator
 
@@ -211,28 +209,13 @@ class acgan(object):
         [logits_source_real, logits_source_fake] = logits_source
         [logits_class_real, logits_class_fake] = logits_class
 
-        # Source losses discriminator
-        loss_source_real_d = tf.reduce_mean(
-            tf.nn.sigmoid_cross_entropy_with_logits(
-                labels = tf.ones_like(logits_source_real), 
-                logits = logits_source_real,
-                name = 'Loss_source_real_d'
-            ))
-        
-        loss_source_fake_d = tf.reduce_mean(
-            tf.nn.sigmoid_cross_entropy_with_logits(
-                labels = tf.zeros_like(logits_source_fake), 
-                logits = logits_source_fake,
-                name = 'Loss_source_fake_d'
-            ))
+        # Source loss discriminator (Wasserstein)
+        loss_source_d = tf.reduce_mean(
+            logits_source_real - logits_source_fake)
         
         # Source loss generator
-        loss_source_fake_g = tf.reduce_mean(
-            tf.nn.sigmoid_cross_entropy_with_logits(
-                labels = tf.ones_like(logits_source_fake), 
-                logits = logits_source_fake,
-                name = 'Loss_source_fake_g'
-            ))
+        loss_source_g = tf.reduce_mean(
+            logits_source_fake)
 
         # Class losses
         loss_class_real = tf.reduce_mean(
@@ -249,8 +232,8 @@ class acgan(object):
                 name = 'Loss_class_fake'
         ))
 
-        loss_discriminator = loss_source_real_d + loss_source_fake_d + loss_class_real + loss_class_fake
-        loss_generator = loss_source_fake_g + loss_class_real + loss_class_fake
+        loss_discriminator = loss_source_d  + loss_class_real + loss_class_fake
+        loss_generator = loss_source_g + loss_class_real + loss_class_fake
 
         return loss_discriminator, loss_generator
 
@@ -278,7 +261,12 @@ class acgan(object):
             optimizer_generator = tf.train.AdamOptimizer(learning_rate = self.g_learning_rate, beta1 = 0.5)
             train_op_generator = optimizer_generator.minimize(loss_generator, var_list=g_vars)
 
-            return train_op_discriminator, train_op_generator
+            clip_values = [-0.01, 0.01]
+            clip_discriminator_var_op = [var.assign(
+                tf.clip_by_value(var, clip_values[0], clip_values[1])
+                ) for var in d_vars]
+
+            return train_op_discriminator, train_op_generator, clip_discriminator_var_op
         
     def _create_summaries(self, loss_discriminator, loss_generator, test_noise, test_labels):
         """ Create summaries for the network
@@ -347,7 +335,7 @@ class acgan(object):
         # Define model, loss, optimizer and summaries.
         logits_source, logits_class = self._create_inference(images, input_lbls, input_unstructured_noise)
         loss_discriminator, loss_generator = self._create_losses(logits_source, logits_class, input_lbls)
-        train_op_discriminator, train_op_generator = self._create_optimizer(loss_discriminator, loss_generator)
+        train_op_discriminator, train_op_generator, clip_discriminator_var_op = self._create_optimizer(loss_discriminator, loss_generator)
         summary_op_dloss, summary_op_gloss, summary_op_img, summary_img = self._create_summaries(loss_discriminator, loss_generator, input_test_noise, input_test_lbls)
 
         # show network architecture
@@ -396,21 +384,24 @@ class acgan(object):
                 while True:
                 # for idx in range(0, num_batches):
                     try:
-                        image_batch, lbl_batch, unst_noise_batch = sess.run(input_getBatch)
+                        for i in range(0,5):
+                            sess.run(clip_discriminator_var_op)
 
-                        _, summary_dloss = sess.run(
-                            [train_op_discriminator, summary_op_dloss],
-                            feed_dict={input_images:             image_batch,
-                                       input_lbls:               lbl_batch,
-                                       input_unstructured_noise: unst_noise_batch})
+                            image_batch, lbl_batch, unst_noise_batch = sess.run(input_getBatch)
+
+                            _, summary_dloss = sess.run(
+                                [train_op_discriminator, summary_op_dloss],
+                                feed_dict={input_images:             image_batch,
+                                        input_lbls:               lbl_batch,
+                                        input_unstructured_noise: unst_noise_batch})
                                         
                         writer.add_summary(summary_dloss, global_step=interationCnt)
 
                         _, summary_gloss = sess.run(
                             [train_op_generator, summary_op_gloss],
                             feed_dict={input_images:             image_batch,
-                                       input_lbls:               lbl_batch,
-                                       input_unstructured_noise: unst_noise_batch})
+                                    input_lbls:               lbl_batch,
+                                    input_unstructured_noise: unst_noise_batch})
 
                         writer.add_summary(summary_gloss, global_step=interationCnt)
                         interationCnt += 1
