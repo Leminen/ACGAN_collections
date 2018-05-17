@@ -210,22 +210,20 @@ class acgan_W(object):
         [logits_class_real, logits_class_fake] = logits_class
 
         # Source losses
+        # loss_source_real = tf.reduce_mean(
+        #     tf.nn.sigmoid(logits_source_real))
+        
+        # loss_source_fake = tf.reduce_mean(
+        #     tf.nn.sigmoid(logits_source_fake))
+
         loss_source_real = tf.reduce_mean(
-            tf.nn.sigmoid(logits_source_real))
+            logits_source_real)
         
         loss_source_fake = tf.reduce_mean(
-            tf.nn.sigmoid(logits_source_fake))
+            logits_source_fake)
 
         loss_source_d = -(loss_source_real - loss_source_fake)
         loss_source_g = -loss_source_fake
-
-        # # Source loss discriminator (Wasserstein)
-        # loss_source_d = tf.reduce_mean(
-        #     logits_source_real - logits_source_fake)
-        
-        # # Source loss generator
-        # loss_source_g = tf.reduce_mean(
-        #     logits_source_fake)
 
         # Class losses
         loss_class_real = tf.reduce_mean(
@@ -242,8 +240,10 @@ class acgan_W(object):
                 name = 'Loss_class_fake'
         ))
 
-        loss_discriminator = loss_source_d  + loss_class_real + loss_class_fake
-        loss_generator = loss_source_g + loss_class_real + loss_class_fake
+        loss_class = loss_class_real + loss_class_fake
+
+        loss_discriminator = loss_source_d + loss_class
+        loss_generator = loss_source_g + loss_class
 
         return loss_discriminator, loss_generator
 
