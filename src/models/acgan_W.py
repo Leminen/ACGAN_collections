@@ -199,7 +199,7 @@ class acgan_W(object):
 
         return [logits_source_real, logits_source_fake], [logits_class_real, logits_class_fake]
     
-    def _create_losses(self, Dout, logits_source, logits_class, labels):
+    def _create_losses(self, logits_source, logits_class, labels):
         """ Define loss function[s] for the network
         Args:
     
