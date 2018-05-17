@@ -261,14 +261,11 @@ class acgan_W(object):
         # variables for generator
         g_vars = tf.get_collection(
             tf.GraphKeys.TRAINABLE_VARIABLES, scope='generator')
-        
-        t_vars = tf.trainable_variables()
-        d_vars2 = [var for var in t_vars if 'discriminator' in var.name]
 
         clip_values = [-0.01, 0.01]
         clip_discriminator_var_op = [var.assign(
             tf.clip_by_value(var, clip_values[0], clip_values[1])
-            ) for var in d_vars2]
+            ) for var in d_vars]
 
         with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS)):
             # create train discriminator operation
@@ -402,13 +399,11 @@ class acgan_W(object):
                         for i in range(0,5):
                             image_batch, lbl_batch, unst_noise_batch = sess.run(input_getBatch)
 
-                            _, summary_dloss = sess.run(
-                                [train_op_discriminator, summary_op_dloss],
+                            _, _, summary_dloss = sess.run(
+                                [train_op_discriminator, clip_discriminator_var_op, summary_op_dloss],
                                 feed_dict={input_images:             image_batch,
                                         input_lbls:               lbl_batch,
                                         input_unstructured_noise: unst_noise_batch})
-                            
-                            sess.run(clip_discriminator_var_op)
                                         
                         writer.add_summary(summary_dloss, global_step=interationCnt)
 
