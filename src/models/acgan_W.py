@@ -199,7 +199,7 @@ class acgan_W(object):
 
         return [logits_source_real, logits_source_fake], [logits_class_real, logits_class_fake]
     
-    def _create_losses(self, logits_source, logits_class, labels):
+    def _create_losses(self, Dout, logits_source, logits_class, labels):
         """ Define loss function[s] for the network
         Args:
     
@@ -209,13 +209,23 @@ class acgan_W(object):
         [logits_source_real, logits_source_fake] = logits_source
         [logits_class_real, logits_class_fake] = logits_class
 
-        # Source loss discriminator (Wasserstein)
-        loss_source_d = tf.reduce_mean(
-            logits_source_real - logits_source_fake)
+        # Source losses
+        loss_source_real = tf.reduce_mean(
+            tf.nn.sigmoid(logits_source_real))
         
-        # Source loss generator
-        loss_source_g = tf.reduce_mean(
-            logits_source_fake)
+        loss_source_fake = tf.reduce_mean(
+            tf.nn.sigmoid(logits_source_fake))
+
+        loss_source_d = -(loss_source_real - loss_source_fake)
+        loss_source_g = -loss_source_fake
+
+        # # Source loss discriminator (Wasserstein)
+        # loss_source_d = tf.reduce_mean(
+        #     logits_source_real - logits_source_fake)
+        
+        # # Source loss generator
+        # loss_source_g = tf.reduce_mean(
+        #     logits_source_fake)
 
         # Class losses
         loss_class_real = tf.reduce_mean(
