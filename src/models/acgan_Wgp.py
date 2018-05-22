@@ -109,7 +109,7 @@ class acgan_Wgp(object):
         self.d_iter = args.d_iter
         self.n_testsamples = args.n_testsamples
 
-        self.gp_lambda = 10
+        self.gp_lambda = args.gp_lambda
         # self.d_lr = 0.00009
         # self.g_lr = 0.001
  
@@ -343,7 +343,7 @@ class acgan_Wgp(object):
         # Create input placeholders
         input_images = tf.placeholder(
             dtype = tf.float32, 
-            shape = [None] + self.image_dims, 
+            shape = [batch_size] + self.image_dims, 
             name = 'input_images')
         input_lbls = tf.placeholder(
             dtype = tf.float32,   
