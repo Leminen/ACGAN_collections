@@ -55,7 +55,16 @@ def hparams_parser(hparams_string):
                         default = None,
                         help = 'Optional ID to distinguise experiments')
 
+    parser.add_argument('--source_loss',
+                        type = str,
+                        default = 'minmax',
+                        choices = ['minmax',
+                                   'wasserstein',
+                                   'wasserstein_weighted'],
+                        help = 'Source loss function')
+
     return parser.parse_args(shlex.split(hparams_string))
+
 
 class acgan_v01(object):
     def __init__(self, dataset, hparams_string):
@@ -66,13 +75,18 @@ class acgan_v01(object):
         if args.id != None:
             self.model = self.model + '_' + args.id
 
-        self.dir_logs        = 'models/' + self.model + '/logs'
-        self.dir_checkpoints = 'models/' + self.model + '/checkpoints'
-        self.dir_results     = 'models/' + self.model + '/results'
+        self.dir_base        = 'models/' + self.model
+        self.dir_logs        = self.dir_base + '/logs'
+        self.dir_checkpoints = self.dir_base + '/checkpoints'
+        self.dir_results     = self.dir_base + '/results'
         
         utils.checkfolder(self.dir_checkpoints)
         utils.checkfolder(self.dir_logs)
         utils.checkfolder(self.dir_results)
+
+        dir_configuration = self.dir_base + '/configuration.txt'
+        with open(dir_configuration, "w") as text_file:
+            print(str(args), file=text_file)
 
         if dataset == 'MNIST':
             self.dateset_filenames =  ['data/processed/MNIST/train.tfrecord']
@@ -83,6 +97,7 @@ class acgan_v01(object):
         self.lbls_dim = 10
         self.image_dims = [28,28,1]
 
+        self.source_loss_fn = args.source_loss
         self.d_learning_rate = args.lr_discriminator
         self.g_learning_rate = args.lr_generator
 
@@ -206,36 +221,81 @@ class acgan_v01(object):
         [logits_source_real, logits_source_fake] = logits_source
         [logits_class_real, logits_class_fake] = logits_class
 
-        # Source losses discriminator
-        loss_source_real_d = tf.reduce_mean(
-            tf.nn.sigmoid_cross_entropy_with_logits(
-                labels = tf.ones_like(logits_source_real), logits = logits_source_real
-            ))
+        # Source loss
+        if self.source_loss_fn == 'minmax':
+            # minmax source loss
+            loss_source_real_d = tf.reduce_mean(
+                tf.nn.sigmoid_cross_entropy_with_logits(
+                    labels = tf.ones_like(logits_source_real), 
+                    logits = logits_source_real,
+                    name = 'Loss_source_real_d'
+                ))
+            
+            loss_source_fake_d = tf.reduce_mean(
+                tf.nn.sigmoid_cross_entropy_with_logits(
+                    labels = tf.zeros_like(logits_source_fake), 
+                    logits = logits_source_fake,
+                    name = 'Loss_source_fake_d'
+                ))
+            
+            # Source loss generator
+            loss_source_fake_g = tf.reduce_mean(
+                tf.nn.sigmoid_cross_entropy_with_logits(
+                    labels = tf.ones_like(logits_source_fake), 
+                    logits = logits_source_fake,
+                    name = 'Loss_source_fake_g'
+                ))
+            
+            loss_source_d = loss_source_real_d + loss_source_fake_d
+            loss_source_g = loss_source_fake_g
         
-        loss_source_fake_d = tf.reduce_mean(
-            tf.nn.sigmoid_cross_entropy_with_logits(
-                labels = tf.zeros_like(logits_source_fake), logits = logits_source_fake
-            ))
+        elif self.source_loss_fn == 'wasserstein':
+            loss_source_real = tf.reduce_mean(
+                logits_source_real)
         
-        # Source loss generator
-        loss_source_fake_g = tf.reduce_mean(
-            tf.nn.sigmoid_cross_entropy_with_logits(
-                labels = tf.ones_like(logits_source_fake), logits = logits_source_fake
-            ))
+            loss_source_fake = tf.reduce_mean(
+                logits_source_fake)
+
+            loss_source_d = -(loss_source_real - loss_source_fake)
+            loss_source_g = -loss_source_fake
+        
+        elif self.source_loss_fn == 'wasserstein_weighted':
+            weight_real = tf.reduce_max(logits_source_real)
+            logits_source_weighted_real = tf.divide(
+                logits_source_real, weight_real)
+
+            loss_source_real = tf.reduce_mean(
+                logits_source_weighted_real)
+        
+            weight_fake = tf.reduce_max(logits_source_fake)
+            logits_source_weighted_fake = tf.divide(
+                logits_source_fake, weight_fake)
+
+            loss_source_fake = tf.reduce_mean(
+                logits_source_weighted_fake)
+
+            loss_source_d = -(loss_source_real - loss_source_fake)
+            loss_source_g = -loss_source_fake
 
         # Class losses
         loss_class_real = tf.reduce_mean(
             tf.nn.softmax_cross_entropy_with_logits(
-                labels = labels, logits = logits_class_real
+                labels = labels, 
+                logits = logits_class_real,
+                name = 'Loss_class_real'
         ))
 
         loss_class_fake = tf.reduce_mean(
             tf.nn.softmax_cross_entropy_with_logits(
-                labels = labels, logits = logits_class_fake
+                labels = labels, 
+                logits = logits_class_fake,
+                name = 'Loss_class_fake'
         ))
 
-        loss_discriminator = loss_source_real_d + loss_source_fake_d + loss_class_real + loss_class_fake
-        loss_generator = loss_source_fake_g + loss_class_real + loss_class_fake
+        loss_class = loss_class_real + loss_class_fake
+
+        loss_discriminator = loss_source_d + loss_class
+        loss_generator = loss_source_g + loss_class
 
         return loss_discriminator, loss_generator
 

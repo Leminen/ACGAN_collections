@@ -30,6 +30,11 @@ leaky_relu = lambda net: tf.nn.leaky_relu(net, alpha=0.2)
 def hparams_parser(hparams_string):
     parser = argparse.ArgumentParser()
 
+    parser.add_argument('--id',
+                        type=str,
+                        default = None,
+                        help = 'Optional ID to distinguise experiments')
+
     parser.add_argument('--lr_discriminator', 
                         type=float, 
                         default='0.0002',
@@ -38,22 +43,29 @@ def hparams_parser(hparams_string):
     parser.add_argument('--lr_generator', 
                         type=float, 
                         default='0.001',
-                        help='generator learning rate')
+                        help='Generator learning rate')
 
     parser.add_argument('--n_testsamples', 
                         type=int, 
                         default='20',
-                        help='number of samples in test images per class')
+                        help='Number of samples in test images per class')
 
     parser.add_argument('--unstructured_noise_dim', 
                         type=int, 
                         default='62',
-                        help='number of random input variables to the generator')
+                        help='Number of random input variables to the generator')
+    
+    parser.add_argument('--d_iter',
+                        type = int,
+                        default = '1',
+                        help = 'Number of times the discriminator is trained each loop')
 
-    parser.add_argument('--id',
-                        type=str,
-                        default = None,
-                        help = 'Optional ID to distinguise experiments')
+    parser.add_argument('--source_loss',
+                        type = str,
+                        default = 'minmax',
+                        choices = ['minmax',
+                                   'wasserstein'],
+                        help = 'Source loss function')
 
     return parser.parse_args(shlex.split(hparams_string))
 
@@ -66,13 +78,18 @@ class acgan(object):
         if args.id != None:
             self.model = self.model + '_' + args.id
 
-        self.dir_logs        = 'models/' + self.model + '/logs'
-        self.dir_checkpoints = 'models/' + self.model + '/checkpoints'
-        self.dir_results     = 'models/' + self.model + '/results'
+        self.dir_base        = 'models/' + self.model
+        self.dir_logs        = self.dir_base + '/logs'
+        self.dir_checkpoints = self.dir_base + '/checkpoints'
+        self.dir_results     = self.dir_base + '/results'
         
         utils.checkfolder(self.dir_checkpoints)
         utils.checkfolder(self.dir_logs)
         utils.checkfolder(self.dir_results)
+
+        dir_configuration = self.dir_base + '/configuration.txt'
+        with open(dir_configuration, "w") as text_file:
+            print(str(args), file=text_file)
 
         if dataset == 'MNIST':
             self.dateset_filenames =  ['data/processed/MNIST/train.tfrecord']
@@ -89,10 +106,11 @@ class acgan(object):
 
         self.unstructured_noise_dim = args.unstructured_noise_dim
         
-
+        self.source_loss_fn = args.source_loss
         self.d_learning_rate = args.lr_discriminator
         self.g_learning_rate = args.lr_generator
 
+        self.d_iter = args.d_iter
         self.n_testsamples = args.n_testsamples
 
         
@@ -211,28 +229,61 @@ class acgan(object):
         [logits_source_real, logits_source_fake] = logits_source
         [logits_class_real, logits_class_fake] = logits_class
 
-        # Source losses discriminator
-        loss_source_real_d = tf.reduce_mean(
-            tf.nn.sigmoid_cross_entropy_with_logits(
-                labels = tf.ones_like(logits_source_real), 
-                logits = logits_source_real,
-                name = 'Loss_source_real_d'
-            ))
+        # Source loss
+        if self.source_loss_fn == 'minmax':
+            # minmax source loss
+            loss_source_real_d = tf.reduce_mean(
+                tf.nn.sigmoid_cross_entropy_with_logits(
+                    labels = tf.ones_like(logits_source_real), 
+                    logits = logits_source_real,
+                    name = 'Loss_source_real_d'
+                ))
+            
+            loss_source_fake_d = tf.reduce_mean(
+                tf.nn.sigmoid_cross_entropy_with_logits(
+                    labels = tf.zeros_like(logits_source_fake), 
+                    logits = logits_source_fake,
+                    name = 'Loss_source_fake_d'
+                ))
+            
+            # Source loss generator
+            loss_source_fake_g = tf.reduce_mean(
+                tf.nn.sigmoid_cross_entropy_with_logits(
+                    labels = tf.ones_like(logits_source_fake), 
+                    logits = logits_source_fake,
+                    name = 'Loss_source_fake_g'
+                ))
+            
+            loss_source_d = loss_source_real_d + loss_source_fake_d
+            loss_source_g = loss_source_fake_g
         
-        loss_source_fake_d = tf.reduce_mean(
-            tf.nn.sigmoid_cross_entropy_with_logits(
-                labels = tf.zeros_like(logits_source_fake), 
-                logits = logits_source_fake,
-                name = 'Loss_source_fake_d'
-            ))
+        elif self.source_loss_fn == 'wasserstein':
+            loss_source_real = tf.reduce_mean(
+                logits_source_real)
         
-        # Source loss generator
-        loss_source_fake_g = tf.reduce_mean(
-            tf.nn.sigmoid_cross_entropy_with_logits(
-                labels = tf.ones_like(logits_source_fake), 
-                logits = logits_source_fake,
-                name = 'Loss_source_fake_g'
-            ))
+            loss_source_fake = tf.reduce_mean(
+                logits_source_fake)
+
+            loss_source_d = -(loss_source_real - loss_source_fake)
+            loss_source_g = -loss_source_fake
+        
+        elif self.source_loss_fn == 'wasserstein_weighted':
+            weight_real = tf.reduce_max(logits_source_real)
+            logits_source_weighted_real = tf.divide(
+                logits_source_real, weight_real)
+
+            loss_source_real = tf.reduce_mean(
+                logits_source_weighted_real)
+        
+            weight_fake = tf.reduce_max(logits_source_fake)
+            logits_source_weighted_fake = tf.divide(
+                logits_source_fake, weight_fake)
+
+            loss_source_fake = tf.reduce_mean(
+                logits_source_weighted_fake)
+
+            loss_source_d = -(loss_source_real - loss_source_fake)
+            loss_source_g = -loss_source_fake
 
         # Class losses
         loss_class_real = tf.reduce_mean(
@@ -249,8 +300,10 @@ class acgan(object):
                 name = 'Loss_class_fake'
         ))
 
-        loss_discriminator = loss_source_real_d + loss_source_fake_d + loss_class_real + loss_class_fake
-        loss_generator = loss_source_fake_g + loss_class_real + loss_class_fake
+        loss_class = loss_class_real + loss_class_fake
+
+        loss_discriminator = loss_source_d + loss_class
+        loss_generator = loss_source_g + loss_class
 
         return loss_discriminator, loss_generator
 
@@ -269,6 +322,15 @@ class acgan(object):
         g_vars = tf.get_collection(
             tf.GraphKeys.TRAINABLE_VARIABLES, scope='generator')
 
+        # If wasserstein loss is used define clip op to limit d_vars
+        if (self.source_loss_fn == 'wasserstein') or (self.source_loss_fn == 'wasserstein_weighted'):
+            clip_limits = [-0.01, 0.01]
+            clip_dvar_op = [var.assign(
+                tf.clip_by_value(var, clip_limits[0], clip_limits[1])
+                ) for var in d_vars]
+        else:
+            clip_dvar_op = tf.constant(0) # dummy op
+
         with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS)):
             # create train discriminator operation
             optimizer_discriminator = tf.train.AdamOptimizer(learning_rate = self.d_learning_rate, beta1 = 0.5)
@@ -278,7 +340,7 @@ class acgan(object):
             optimizer_generator = tf.train.AdamOptimizer(learning_rate = self.g_learning_rate, beta1 = 0.5)
             train_op_generator = optimizer_generator.minimize(loss_generator, var_list=g_vars)
 
-            return train_op_discriminator, train_op_generator
+            return train_op_discriminator, train_op_generator, clip_dvar_op
         
     def _create_summaries(self, loss_discriminator, loss_generator, test_noise, test_labels):
         """ Create summaries for the network
@@ -347,7 +409,7 @@ class acgan(object):
         # Define model, loss, optimizer and summaries.
         logits_source, logits_class = self._create_inference(images, input_lbls, input_unstructured_noise)
         loss_discriminator, loss_generator = self._create_losses(logits_source, logits_class, input_lbls)
-        train_op_discriminator, train_op_generator = self._create_optimizer(loss_discriminator, loss_generator)
+        train_op_discriminator, train_op_generator, clip_dvar_op = self._create_optimizer(loss_discriminator, loss_generator)
         summary_op_dloss, summary_op_gloss, summary_op_img, summary_img = self._create_summaries(loss_discriminator, loss_generator, input_test_noise, input_test_lbls)
 
         # show network architecture
@@ -396,13 +458,14 @@ class acgan(object):
                 while True:
                 # for idx in range(0, num_batches):
                     try:
-                        image_batch, lbl_batch, unst_noise_batch = sess.run(input_getBatch)
+                        for _ in range(self.d_iter):
+                            image_batch, lbl_batch, unst_noise_batch = sess.run(input_getBatch)
 
-                        _, summary_dloss = sess.run(
-                            [train_op_discriminator, summary_op_dloss],
-                            feed_dict={input_images:             image_batch,
-                                       input_lbls:               lbl_batch,
-                                       input_unstructured_noise: unst_noise_batch})
+                            _, summary_dloss, _ = sess.run(
+                                [train_op_discriminator, summary_op_dloss, clip_dvar_op],
+                                feed_dict={input_images:             image_batch,
+                                        input_lbls:               lbl_batch,
+                                        input_unstructured_noise: unst_noise_batch})
                                         
                         writer.add_summary(summary_dloss, global_step=interationCnt)
 
