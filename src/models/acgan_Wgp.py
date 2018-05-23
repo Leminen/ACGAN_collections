@@ -26,6 +26,7 @@ framework = tf.contrib.framework
 ds = tf.contrib.distributions
 
 leaky_relu = lambda net: tf.nn.leaky_relu(net, alpha=0.2)
+class OutOfRangeError(Exception): pass
 
 def hparams_parser(hparams_string):
     parser = argparse.ArgumentParser()
@@ -420,6 +421,9 @@ class acgan_Wgp(object):
                     try:
                         for _ in range(self.d_iter):
                             image_batch, lbl_batch, unst_noise_batch = sess.run(input_getBatch)
+                            
+                            if(image_batch.shape[0] != batch_size):
+                                raise OutOfRangeError
 
                             _, summary_dloss = sess.run(
                                 [train_op_discriminator, summary_op_dloss],
@@ -438,7 +442,7 @@ class acgan_Wgp(object):
                         writer.add_summary(summary_gloss, global_step=interationCnt)
                         interationCnt += 1
 
-                    except tf.errors.OutOfRangeError:
+                    except (tf.errors.OutOfRangeError, OutOfRangeError):
                         # Test current model
                         summaryImg_tb, summaryImg = sess.run(
                             [summary_op_img, summary_img],
