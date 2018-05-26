@@ -269,8 +269,9 @@ class acgan_Wgp(object):
 
         loss_class = loss_class_real + loss_class_fake
 
-        loss_discriminator = loss_source_d + loss_class
-        loss_generator = loss_source_g + loss_class
+
+        loss_discriminator =[loss_source_d, loss_class_real, loss_class_fake]
+        loss_generator = [loss_source_g, loss_class_real, loss_class_fake]
 
         return loss_discriminator, loss_generator
 
@@ -281,6 +282,10 @@ class acgan_Wgp(object):
     
         Returns:
         """
+
+        d_loss = tf.reduce_sum(loss_discriminator)
+        g_loss = tf.reduce_sum(loss_generator)
+
         # variables for discriminator
         d_vars = tf.get_collection(
             tf.GraphKeys.TRAINABLE_VARIABLES, scope='discriminator')
@@ -293,11 +298,11 @@ class acgan_Wgp(object):
         with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS)):
             # create train discriminator operation
             optimizer_discriminator = tf.train.AdamOptimizer(learning_rate = self.d_learning_rate, beta1 = 0.5)
-            train_op_discriminator = optimizer_discriminator.minimize(loss_discriminator, var_list=d_vars)
+            train_op_discriminator = optimizer_discriminator.minimize(d_loss, var_list=d_vars)
 
             # create train generator operation
             optimizer_generator = tf.train.AdamOptimizer(learning_rate = self.g_learning_rate, beta1 = 0.5)
-            train_op_generator = optimizer_generator.minimize(loss_generator, var_list=g_vars)
+            train_op_generator = optimizer_generator.minimize(g_loss, var_list=g_vars)
 
             
 
@@ -318,8 +323,31 @@ class acgan_Wgp(object):
 
         ### Add loss summaries
         with tf.name_scope("SummaryLosses"):
-            summary_op_dloss = tf.summary.scalar('loss_discriminator', loss_discriminator)
-            summary_op_gloss = tf.summary.scalar('loss_generator', loss_generator)
+
+            summary_dloss_source = tf.summary.scalar('discriminator_loss_source', loss_discriminator[0])
+            summary_dloss_class_real = tf.summary.scalar('discriminator_loss_class_real', loss_discriminator[1])
+            summary_dloss_class_fake = tf.summary.scalar('discriminator_loss_class_fake', loss_discriminator[2])
+            summary_dloss_class = tf.summary.scalar('discriminator_loss_class', tf.reduce_sum(loss_discriminator[1:]))
+            summary_dloss_tot = tf.summary.scalar('discriminator_loss_tot', tf.reduce_sum(loss_discriminator))
+            summary_op_dloss = tf.summary.merge(
+                [summary_dloss_source,
+                 summary_dloss_class_real,
+                 summary_dloss_class_fake,
+                 summary_dloss_class,
+                 summary_dloss_tot], name = 'loss_discriminator')
+
+            summary_gloss_source = tf.summary.scalar('generator_loss_source', loss_generator[0])
+            summary_gloss_class_real = tf.summary.scalar('generator_loss_class_real', loss_generator[1])
+            summary_gloss_class_fake = tf.summary.scalar('generator_loss_class_fake', loss_generator[2])
+            summary_gloss_class = tf.summary.scalar('generator_loss_class', tf.reduce_sum(loss_generator[1:]))
+            summary_gloss_tot = tf.summary.scalar('generator_loss_tot', tf.reduce_sum(loss_generator))
+            summary_op_gloss = tf.summary.merge(
+                [summary_gloss_source,
+                 summary_gloss_class_real,
+                 summary_gloss_class_fake,
+                 summary_gloss_class,
+                 summary_gloss_tot], name = 'loss_generator')
+            
             
         return summary_op_dloss, summary_op_gloss, summary_op_img, summary_img
                                                                  
@@ -427,17 +455,17 @@ class acgan_Wgp(object):
 
                             _, summary_dloss = sess.run(
                                 [train_op_discriminator, summary_op_dloss],
-                                feed_dict={input_images:             image_batch,
-                                        input_lbls:               lbl_batch,
-                                        input_unstructured_noise: unst_noise_batch})
+                                feed_dict={input_images:            image_batch,
+                                        input_lbls:                 lbl_batch,
+                                        input_unstructured_noise:   unst_noise_batch})
                                         
                         writer.add_summary(summary_dloss, global_step=interationCnt)
 
                         _, summary_gloss = sess.run(
                             [train_op_generator, summary_op_gloss],
-                            feed_dict={input_images:             image_batch,
-                                    input_lbls:               lbl_batch,
-                                    input_unstructured_noise: unst_noise_batch})
+                            feed_dict={input_images:            image_batch,
+                                    input_lbls:                 lbl_batch,
+                                    input_unstructured_noise:   unst_noise_batch})
 
                         writer.add_summary(summary_gloss, global_step=interationCnt)
                         interationCnt += 1
