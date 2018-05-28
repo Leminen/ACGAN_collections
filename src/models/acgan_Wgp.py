@@ -65,6 +65,16 @@ def hparams_parser(hparams_string):
                         type = int,
                         default = '10',
                         help = 'Gradient penalty weight')
+    
+    parser.add_argument('--class_scale_d',
+                        type = float,
+                        default = '1',
+                        help = 'Scale significance of discriminator class loss')
+
+    parser.add_argument('--class_scale_g',
+                        type = float,
+                        default = '1',
+                        help = 'Scale significance of generator class loss')
 
     return parser.parse_args(shlex.split(hparams_string))
 
@@ -111,8 +121,11 @@ class acgan_Wgp(object):
         self.n_testsamples = args.n_testsamples
 
         self.gp_lambda = args.gp_lambda
+        self.class_scale_d = args.class_scale_d
+        self.class_scale_g = args.class_scale_g
         # self.d_lr = 0.00009
         # self.g_lr = 0.001
+
  
     def __generator(self, noise, lbls_onehot, weight_decay = 2.5e-5, is_training = True, reuse=False):
         """InfoGAN discriminator network on MNIST digits.
@@ -154,6 +167,7 @@ class acgan_Wgp(object):
                 # ie [-1, 1].
         
                 return net
+
     
     def __discriminator(self, img, weight_decay=2.5e-5, is_training=True, reuse = False):
         """InfoGAN discriminator network on MNIST digits.
@@ -225,6 +239,7 @@ class acgan_Wgp(object):
         artificial_images = [generated_images, interpolated_images]
 
         return logits_source, logits_class, artificial_images
+
     
     def _create_losses(self, logits_source, logits_class, artificial_images, labels):
         """ Define loss function[s] for the network
@@ -237,20 +252,22 @@ class acgan_Wgp(object):
         [logits_class_real, logits_class_fake, _] = logits_class
         [_ , interpolated_images] = artificial_images
 
+        # Source losses
         loss_source_real = tf.reduce_mean(
             logits_source_real)
         
         loss_source_fake = tf.reduce_mean(
             logits_source_fake)
 
-        loss_source_d = -(loss_source_real - loss_source_fake)
-        loss_source_g = -loss_source_fake
+        loss_source_discriminator = -(loss_source_real - loss_source_fake)
+        loss_source_generator = -loss_source_fake
 
+        # Discriminator Gradient Penalty
         gradients = tf.gradients(logits_source_interpolates, [interpolated_images])[0]
         gradients_l2 = tf.sqrt(tf.reduce_sum(tf.square(gradients), axis=[1]))
         gradient_penalty = tf.reduce_mean(tf.square(gradients_l2 - 1.0))
 
-        loss_source_d += self.gp_lambda * gradient_penalty
+        loss_source_discriminator += self.gp_lambda * gradient_penalty
 
         # Class losses
         loss_class_real = tf.reduce_mean(
@@ -267,11 +284,19 @@ class acgan_Wgp(object):
                 name = 'Loss_class_fake'
         ))
 
-        loss_class = loss_class_real + loss_class_fake
+        loss_class_discriminator = loss_class_real + loss_class_fake
+        loss_class_generator = loss_class_fake
 
+        # Total losses, with scaled class loss
+        loss_total_discriminator = loss_source_discriminator + self.class_scale_d * loss_class_discriminator
+        loss_total_generator = loss_source_generator + self.class_scale_g * loss_class_generator
 
-        loss_discriminator =[loss_source_d, loss_class_real, loss_class_fake]
-        loss_generator = [loss_source_g, loss_class_real, loss_class_fake]
+        loss_discriminator = [loss_total_discriminator, 
+                              loss_source_discriminator, 
+                              loss_class_discriminator]
+        loss_generator     = [loss_total_generator, 
+                              loss_source_generator,
+                              loss_class_generator]
 
         return loss_discriminator, loss_generator
 
@@ -282,9 +307,10 @@ class acgan_Wgp(object):
     
         Returns:
         """
-
-        d_loss = tf.reduce_sum(loss_discriminator)
-        g_loss = tf.reduce_sum(loss_generator)
+        
+        # optimize on total loss
+        d_loss = loss_discriminator[0]
+        g_loss = loss_generator[0]
 
         # variables for discriminator
         d_vars = tf.get_collection(
@@ -297,16 +323,15 @@ class acgan_Wgp(object):
 
         with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS)):
             # create train discriminator operation
-            optimizer_discriminator = tf.train.AdamOptimizer(learning_rate = self.d_learning_rate, beta1 = 0.5)
+            optimizer_discriminator = tf.train.AdamOptimizer(learning_rate = self.d_learning_rate, beta1 = 0.5, beta2 = 0.9)
             train_op_discriminator = optimizer_discriminator.minimize(d_loss, var_list=d_vars)
 
             # create train generator operation
-            optimizer_generator = tf.train.AdamOptimizer(learning_rate = self.g_learning_rate, beta1 = 0.5)
+            optimizer_generator = tf.train.AdamOptimizer(learning_rate = self.g_learning_rate, beta1 = 0.5, beta2 = 0.9)
             train_op_generator = optimizer_generator.minimize(g_loss, var_list=g_vars)
 
-            
+        return train_op_discriminator, train_op_generator
 
-            return train_op_discriminator, train_op_generator
         
     def _create_summaries(self, loss_discriminator, loss_generator, test_noise, test_labels):
         """ Create summaries for the network
@@ -319,35 +344,31 @@ class acgan_Wgp(object):
         # Create image summaries to inspect the variation due to categorical latent codes
         with tf.name_scope("SummaryImages_ClassVariation"):
             summary_img = tfgan.eval.image_reshaper(tf.concat(test_images, 0), num_cols=self.lbls_dim)
-            summary_op_img = tf.summary.image('summary_images', summary_img, max_outputs = 20)
+            summary_op_img = tf.summary.image('In', summary_img, max_outputs = 1)
 
         ### Add loss summaries
-        with tf.name_scope("SummaryLosses"):
+        [loss_total_discriminator, loss_source_discriminator, loss_class_discriminator] = loss_discriminator
+        [loss_total_generator, loss_source_generator, loss_class_generator] = loss_generator
 
-            summary_dloss_source = tf.summary.scalar('discriminator_loss_source', loss_discriminator[0])
-            summary_dloss_class_real = tf.summary.scalar('discriminator_loss_class_real', loss_discriminator[1])
-            summary_dloss_class_fake = tf.summary.scalar('discriminator_loss_class_fake', loss_discriminator[2])
-            summary_dloss_class = tf.summary.scalar('discriminator_loss_class', tf.reduce_sum(loss_discriminator[1:]))
-            summary_dloss_tot = tf.summary.scalar('discriminator_loss_tot', tf.reduce_sum(loss_discriminator))
+        with tf.name_scope("SummaryLosses_Discriminator"):
+
+            summary_dloss_source = tf.summary.scalar('loss_source', loss_source_discriminator)
+            summary_dloss_class = tf.summary.scalar('loss_class', loss_class_discriminator)
+            summary_dloss_tot = tf.summary.scalar('loss_total', loss_total_discriminator)
             summary_op_dloss = tf.summary.merge(
                 [summary_dloss_source,
-                 summary_dloss_class_real,
-                 summary_dloss_class_fake,
                  summary_dloss_class,
                  summary_dloss_tot], name = 'loss_discriminator')
 
-            summary_gloss_source = tf.summary.scalar('generator_loss_source', loss_generator[0])
-            summary_gloss_class_real = tf.summary.scalar('generator_loss_class_real', loss_generator[1])
-            summary_gloss_class_fake = tf.summary.scalar('generator_loss_class_fake', loss_generator[2])
-            summary_gloss_class = tf.summary.scalar('generator_loss_class', tf.reduce_sum(loss_generator[1:]))
-            summary_gloss_tot = tf.summary.scalar('generator_loss_tot', tf.reduce_sum(loss_generator))
+        with tf.name_scope("SummaryLosses_Generator"):
+
+            summary_gloss_source = tf.summary.scalar('loss_source', loss_source_generator)
+            summary_gloss_class = tf.summary.scalar('loss_class', loss_class_generator)
+            summary_gloss_tot = tf.summary.scalar('loss_tot', loss_total_generator)
             summary_op_gloss = tf.summary.merge(
                 [summary_gloss_source,
-                 summary_gloss_class_real,
-                 summary_gloss_class_fake,
                  summary_gloss_class,
                  summary_gloss_tot], name = 'loss_generator')
-            
             
         return summary_op_dloss, summary_op_gloss, summary_op_img, summary_img
                                                                  
