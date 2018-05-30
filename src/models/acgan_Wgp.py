@@ -471,7 +471,7 @@ class acgan_Wgp(object):
                 
                 ### ----------------------------------------------------------
                 ### Update model
-                print(datetime.datetime.now(),'- Running training epoch no:', epoch_n)
+                utils.show_message('Running training epoch no: {0}'.format(epoch_n))
                 while True:
                 # for idx in range(0, num_batches):
                     try:

@@ -15,9 +15,8 @@ __email__ = "slm@eng.au.dk"
 import os
 import GPUtil
 import argparse
-import datetime
-import shlex
 
+import src.utils as utils
 from src.data import dataset_manager
 from src.models.BasicModel import BasicModel
 from src.models.acgan_v01 import acgan_v01
@@ -116,18 +115,17 @@ def main():
     
     # Make dataset
     if args.make_dataset:
-        print('%s - Fetching raw dataset: %s'  % (datetime.datetime.now(), args.dataset))
+        utils.show_message('Fetching raw dataset: {0}'.format(args.dataset), lvl = 1)
         dataset_manager.make_dataset(args.dataset)
         
     # Make dataset
     if args.process_dataset:
-        print('%s - Processing raw dataset: %s' % (datetime.datetime.now(), args.dataset))
+        utils.show_message('Processing raw dataset: {0}'.format(args.dataset), lvl = 1)
         dataset_manager.process_dataset(args.dataset)
         
     # Build and train model
     if args.train_model:
-        print('%s - Configuring and training Network: %s' % (datetime.datetime.now(), args.model))
-        
+        utils.show_message('Configuring and Training Network: {0}'.format(args.model), lvl = 1)        
 
         if args.model == 'BasicModel':
             model = BasicModel()
