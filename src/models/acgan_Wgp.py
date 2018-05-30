@@ -106,12 +106,12 @@ class acgan_Wgp(object):
 
         elif dataset == 'PSD_Nonsegmented':
             self.dateset_filenames = ['data/processed/PSD/Nonsegmented.tfrecord']
-            self.lbls_dim = 12
+            self.lbls_dim = 9
             self.image_dims = [128,128,3]
 
         elif dataset == 'PSD_Segmented':
             self.dateset_filenames = ['data/processed/PSD/Segmented.tfrecord']
-            self.lbls_dim = 12
+            self.lbls_dim = 9
             self.image_dims = [128,128,3]
 
         else:
