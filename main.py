@@ -70,8 +70,8 @@ def parse_args():
     parser.add_argument('--dataset', 
                         type=str, default='MNIST', 
                         choices=['MNIST',
-                                 'PSD',
-                                 'SVHN'],
+                                 'PSD_Nonsegmented',
+                                 'PSD_Segmented'],
                         #required = True,
                         help='The name of dataset')
 

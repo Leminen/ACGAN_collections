@@ -9,7 +9,6 @@ import sys
 import os
 import tensorflow as tf
 import numpy as np
-import itertools
 import functools
 import matplotlib.pyplot as plt
 import datetime
@@ -101,16 +100,24 @@ class acgan_Wgp(object):
             print(str(args), file=text_file)
 
         if dataset == 'MNIST':
-            self.dateset_filenames =  ['data/processed/MNIST/train.tfrecord']
+            self.dateset_filenames = ['data/processed/MNIST/train.tfrecord']
             self.lbls_dim = 10
             self.image_dims = [128,128,1]
 
-        elif dataset == 'PSD':
+        elif dataset == 'PSD_Nonsegmented':
             self.dateset_filenames = ['data/processed/PSD/Nonsegmented.tfrecord']
             self.lbls_dim = 12
             self.image_dims = [128,128,3]
+
+        elif dataset == 'PSD_Segmented':
+            self.dateset_filenames = ['data/processed/PSD/Segmented.tfrecord']
+            self.lbls_dim = 12
+            self.image_dims = [128,128,3]
+
         else:
             raise ValueError('Selected Dataset is not supported by model: acgan_W')
+        
+        self.dataset = dataset
 
         self.unstructured_noise_dim = args.unstructured_noise_dim
         
@@ -537,7 +544,23 @@ class acgan_Wgp(object):
         # image = tf.multiply(image, mask)
 
         image = image_proto
-        image = tf.image.resize_images(image, size = [128, 128])  
+
+        # Dataset specific preprocessing
+        if self.dataset == 'MNIST':
+            pass
+
+        elif self.dataset == 'PSD_Nonsegmented':
+            pass
+
+        elif self.dataset == 'PSD_Segmented':
+            max_dim = tf.maximum(height_proto, width_proto)
+            height_diff = max_dim - height_proto
+            width_diff = max_dim - width_proto
+
+            paddings = tf.floor_div([[height_diff, height_diff], [width_diff, width_diff], [0,0]],2)
+            image = tf.pad(image, paddings, mode='CONSTANT', name=None, constant_values=-1)
+
+        image = tf.image.resize_images(image, size = self.image_dims[0:-1])  
 
         lbl = tf.one_hot(lbl_proto, self.lbls_dim)
 

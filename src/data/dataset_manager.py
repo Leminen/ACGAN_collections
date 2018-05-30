@@ -4,8 +4,8 @@ import os
 import src.utils as utils
 import src.data.util_data as util_data
 
-import src.data.mnist as mnist
-import src.data.psd as psd
+import src.data.datasets.mnist as mnist
+import src.data.datasets.psd as psd
 
 def make_dataset(dataset):
     dir_rawData = 'data/raw/'+ dataset
@@ -14,7 +14,7 @@ def make_dataset(dataset):
     if dataset == 'MNIST':
         mnist.download()
 
-    elif dataset == 'PSD':
+    elif dataset == 'PSD_Nonsegmented' or dataset == 'PSD_Segmented':
         psd.download()
 
     else:
@@ -27,7 +27,7 @@ def process_dataset(dataset):
     if dataset == 'MNIST':
         mnist.process()
 
-    elif dataset == 'PSD':
+    elif dataset == 'PSD_Nonsegmented' or dataset == 'PSD_Segmented':
         psd.process()
 
     else:

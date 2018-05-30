@@ -29,6 +29,7 @@ _NUM_CHANNELS = 1
 _NUM_TRAIN_SAMPLES = 60000
 _NUM_TEST_SAMPLES = 10000
 
+_EXCLUDED_GRASSES = True
 
 
 class ImageReader(object):
@@ -64,7 +65,7 @@ class ImageReader(object):
             feed_dict={self._decode_png_data: image_data})
 
 
-def _get_filenames_and_classes(dataset_dir, setname):
+def _get_filenames_and_classes(dataset_dir, setname, exclude_list):
     """Returns a list of filenames and inferred class names.
 
     Args:
@@ -81,14 +82,17 @@ def _get_filenames_and_classes(dataset_dir, setname):
     for filename in os.listdir(flower_root):
         path = os.path.join(flower_root, filename)
         if os.path.isdir(path):
-            directories.append(path)
-            class_names.append(filename)
+            if not any(x in filename for x in exclude_list):
+                directories.append(path)
+                class_names.append(filename)
 
     photo_filenames = []
     for directory in directories:
-        for filename in os.listdir(directory):
-            path = os.path.join(directory, filename)
-            photo_filenames.append(path)
+        if not any(x in directory for x in exclude_list):
+            for filename in os.listdir(directory):
+                path = os.path.join(directory, filename)
+                photo_filenames.append(path)
+                
 
     return photo_filenames, sorted(class_names)
 
@@ -131,6 +135,7 @@ def _convert_to_tfrecord(filenames, class_dict, tfrecord_writer):
                 )
 
             tfrecord_writer.write(example.SerializeToString())
+        
 
 def _get_output_filename(dataset_dir, split_name):
     """Creates the output filename.
@@ -183,13 +188,17 @@ def process():
         print('Dataset files already exist. Exiting without re-creating them.')
         return
 
+    if _EXCLUDED_GRASSES:
+        exclude_list = ['Black-grass', 'Common wheat', 'Loose Silky-bent']
+    else:
+        exclude_list = []
 
     # First, process the nonsegented data:
     with tf.python_io.TFRecordWriter(training_filename) as tfrecord_writer:
         data_filename = os.path.join(_DIR_RAW, _NONSEGMENTED)
         archive = zipfile.ZipFile(data_filename)
         archive.extractall(_DIR_PROCESSED)
-        filenames, class_names = _get_filenames_and_classes(_DIR_PROCESSED, 'Nonsegmented')
+        filenames, class_names = _get_filenames_and_classes(_DIR_PROCESSED, 'Nonsegmented', exclude_list)
         class_dict = dict(zip(class_names, range(len(class_names))))
 
         _convert_to_tfrecord(filenames, class_dict, tfrecord_writer)
@@ -202,7 +211,7 @@ def process():
         data_filename = os.path.join(_DIR_RAW, _SEGMENTED)
         archive = zipfile.ZipFile(data_filename)
         archive.extractall(_DIR_PROCESSED)
-        filenames, class_names = _get_filenames_and_classes(_DIR_PROCESSED, 'Segmented')
+        filenames, class_names = _get_filenames_and_classes(_DIR_PROCESSED, 'Segmented', exclude_list)
         class_dict = dict(zip(class_names, range(len(class_names))))
 
         _convert_to_tfrecord(filenames, class_dict, tfrecord_writer)
