@@ -165,7 +165,7 @@ def download(dataset_part):
     """Downloads PSD locally
     """
     if dataset_part == 'Nonsegmented':
-        _date_url = _DATA_URL_NONSEGMENTED
+        _data_url = _DATA_URL_NONSEGMENTED
         filepath = os.path.join(_DIR_RAW_NONSEGMENTED)
     else:
         _data_url = _DATA_URL_SEGMENTED
