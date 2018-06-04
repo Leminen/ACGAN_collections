@@ -34,6 +34,8 @@ _DIR_PROCESSED_SEGMENTED = 'data/processed/PSD_Segmented/'
 
 
 _EXCLUDED_GRASSES = True
+_EXCLUDE_LARGE_IMAGES = True
+_LARGE_IMAGE_DIM = 400
 
 
 class ImageReader(object):
@@ -126,21 +128,24 @@ def _convert_to_tfrecord(filenames, class_dict, tfrecord_writer):
             encoded_img = tf.gfile.FastGFile(filenames[i], 'rb').read()
             encoded_img, height, width, channels = image_reader.truncate_image(sess, encoded_img)
 
-            class_name = os.path.basename(os.path.dirname(filenames[i]))
-            label = class_dict[class_name]
+            if _EXCLUDE_LARGE_IMAGES and (height > _LARGE_IMAGE_DIM or width > _LARGE_IMAGE_DIM):
+                pass
+            else:
+                class_name = os.path.basename(os.path.dirname(filenames[i]))
+                label = class_dict[class_name]
 
-            example = util_data.encode_image(
-                image_data = encoded_img,
-                image_format = 'png'.encode(),
-                class_lbl = label,
-                class_text = class_name.encode(),
-                height = height,
-                width = width,
-                channels = channels,
-                origin = filenames[i].encode()
-                )
+                example = util_data.encode_image(
+                    image_data = encoded_img,
+                    image_format = 'png'.encode(),
+                    class_lbl = label,
+                    class_text = class_name.encode(),
+                    height = height,
+                    width = width,
+                    channels = channels,
+                    origin = filenames[i].encode()
+                    )
 
-            tfrecord_writer.write(example.SerializeToString())
+                tfrecord_writer.write(example.SerializeToString())
         
 
 def _get_output_filename(dataset_dir, split_name):

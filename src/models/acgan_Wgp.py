@@ -16,6 +16,7 @@ import scipy
 import argparse
 import shlex
 
+import src.data.datasets.psd as psd_dataset
 import src.utils as utils
 import src.data.util_data as util_data
 
@@ -553,7 +554,7 @@ class acgan_Wgp(object):
             pass
 
         elif self.dataset == 'PSD_Segmented':
-            max_dim = tf.maximum(height_proto, width_proto)
+            max_dim = psd_dataset._LARGE_IMAGE_DIM      # old stuff: tf.maximum(height_proto, width_proto)
             height_diff = max_dim - height_proto
             width_diff = max_dim - width_proto
 
