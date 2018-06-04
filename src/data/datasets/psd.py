@@ -14,20 +14,24 @@ import tensorflow as tf
 
 import src.data.util_data as util_data
 
-# The URLs where the MNIST data can be downloaded.
+# The URLs where the PSD data can be downloaded.
 _DATA_URL = 'https://vision.eng.au.dk/?download=/data/WeedData/'
-_NONSEGMENTED = 'Nonsegmented.zip'
+_NONSEGMENTED = 'NonsegmentedV2.zip'
 _SEGMENTED = 'Segmented.zip'
+
+_DATA_URL_NONSEGMENTED = 'https://vision.eng.au.dk/?download=/data/WeedData/NonsegmentedV2.zip'
+_DATA_URL_SEGMENTED = 'https://vision.eng.au.dk/?download=/data/WeedData/Segmented.zip'
 
 # Local directories to store the dataset
 _DIR_RAW = 'data/raw/PSD'
 _DIR_PROCESSED = 'data/processed/PSD'
 
-#
-_IMAGE_SIZE = 28
-_NUM_CHANNELS = 1
-_NUM_TRAIN_SAMPLES = 60000
-_NUM_TEST_SAMPLES = 10000
+_DIR_RAW_NONSEGMENTED = 'data/raw/PSD_Nonsegmented/NonsegmentedV2.zip'
+_DIR_PROCESSED_NONSEGMENTED = 'data/processed/PSD_Nonsegmented/'
+
+_DIR_RAW_SEGMENTED = 'data/raw/PSD_Segmented/Segmented.zip'
+_DIR_PROCESSED_SEGMENTED = 'data/processed/PSD_Segmented/'
+
 
 _EXCLUDED_GRASSES = True
 
@@ -76,11 +80,13 @@ def _get_filenames_and_classes(dataset_dir, setname, exclude_list):
       A list of image file paths, relative to `dataset_dir` and the list of
       subdirectories, representing class names.
     """
-    flower_root = os.path.join(dataset_dir, setname)
+    
+    data_root = os.path.join(dataset_dir, *setname)
+
     directories = []
     class_names = []
-    for filename in os.listdir(flower_root):
-        path = os.path.join(flower_root, filename)
+    for filename in os.listdir(data_root):
+        path = os.path.join(data_root, filename)
         if os.path.isdir(path):
             if not any(x in filename for x in exclude_list):
                 directories.append(path)
@@ -118,7 +124,7 @@ def _convert_to_tfrecord(filenames, class_dict, tfrecord_writer):
 
             # Read the filename:
             encoded_img = tf.gfile.FastGFile(filenames[i], 'rb').read()
-            encoded_img, height, width, channels = image_reader.truncate_image(sess, encoded_img)#  .read_image_dims(sess, encoded_img)
+            encoded_img, height, width, channels = image_reader.truncate_image(sess, encoded_img)
 
             class_name = os.path.basename(os.path.dirname(filenames[i]))
             label = class_dict[class_name]
@@ -150,74 +156,93 @@ def _get_output_filename(dataset_dir, split_name):
     return '%s/%s.tfrecord' % (dataset_dir, split_name)
 
 
-def download():
-  """Downloads PSD locally.
-  """
-  for filename in [_NONSEGMENTED,
-                   _SEGMENTED]:
-    filepath = os.path.join(_DIR_RAW, filename)
+def download(dataset_part):
+    """Downloads PSD locally
+    """
+    if dataset_part == 'Nonsegmented':
+        _date_url = _DATA_URL_NONSEGMENTED
+        filepath = os.path.join(_DIR_RAW_NONSEGMENTED)
+    else:
+        _data_url = _DATA_URL_SEGMENTED
+        filepath = os.path.join(_DIR_RAW_SEGMENTED)
 
     if not os.path.exists(filepath):
-      print('Downloading file %s...' % filename)
-      def _progress(count, block_size, total_size):
-        sys.stdout.write('\r>> Downloading %.1f%%' % (
-            float(count * block_size) / float(total_size) * 100.0))
-        sys.stdout.flush()
-      filepath, _ = urllib.request.urlretrieve(_DATA_URL + filename,
-                                               filepath,
-                                               _progress)
-      print()
-      with tf.gfile.GFile(filepath) as f:
-        size = f.size()
-      print('Successfully downloaded', filename, size, 'bytes.')
+        print('Downloading dataset...')
+        def _progress(count, block_size, total_size):
+            sys.stdout.write('\r>> Downloading %.1f%%' % (
+                float(count * block_size) / float(total_size) * 100.0))
+            sys.stdout.flush()
+
+        filepath, _ = urllib.request.urlretrieve(_data_url, filepath, _progress)
+
+        print()
+        with tf.gfile.GFile(filepath) as f:
+            size = f.size()
+        print('Successfully downloaded', size, 'bytes.')
 
 
-def process():
+
+def process(dataset_part):
     """Runs the download and conversion operation.
 
     Args:
       dataset_dir: The dataset directory where the dataset is stored.
     """
-    if not tf.gfile.Exists(_DIR_PROCESSED):
-        tf.gfile.MakeDirs(_DIR_PROCESSED)
+    if dataset_part == 'Nonsegmented':
+        _dir_raw = _DIR_RAW_NONSEGMENTED
+        _dir_processed = _DIR_PROCESSED_NONSEGMENTED
+        setname = 'Nonsegmented'
+        training_filename = _get_output_filename(_DIR_PROCESSED_NONSEGMENTED, 'train')
+        # testing_filename = _get_output_filename(_DIR_PROCESSED_NONSEGMENTED, 'test')
+    else:
+        _dir_raw = _DIR_RAW_SEGMENTED
+        _dir_processed = _DIR_PROCESSED_SEGMENTED
+        setname = 'Segmented' 
+        training_filename = _get_output_filename(_DIR_PROCESSED_SEGMENTED, 'train')
+        # testing_filename = _get_output_filename(_DIR_PROCESSED_SEGMENTED, 'test')
 
-    training_filename = _get_output_filename(_DIR_PROCESSED, 'Nonsegmented')
-    testing_filename = _get_output_filename(_DIR_PROCESSED, 'Segmented')
-
-    if tf.gfile.Exists(training_filename) and tf.gfile.Exists(testing_filename):
+    if tf.gfile.Exists(training_filename): #and tf.gfile.Exists(testing_filename):
         print('Dataset files already exist. Exiting without re-creating them.')
         return
+
 
     if _EXCLUDED_GRASSES:
         exclude_list = ['Black-grass', 'Common wheat', 'Loose Silky-bent']
     else:
         exclude_list = []
 
-    # First, process the nonsegented data:
+    # First, process training data:
     with tf.python_io.TFRecordWriter(training_filename) as tfrecord_writer:
-        data_filename = os.path.join(_DIR_RAW, _NONSEGMENTED)
+        data_filename = os.path.join(_dir_raw)
         archive = zipfile.ZipFile(data_filename)
-        archive.extractall(_DIR_PROCESSED)
-        filenames, class_names = _get_filenames_and_classes(_DIR_PROCESSED, 'Nonsegmented', exclude_list)
+        archive.extractall(_dir_processed)
+        filenames, class_names = _get_filenames_and_classes(_dir_processed, [setname], exclude_list)
+        # filenames, class_names = _get_filenames_and_classes(_dir_processed, [setname, 'train'], exclude_list)
         class_dict = dict(zip(class_names, range(len(class_names))))
 
         _convert_to_tfrecord(filenames, class_dict, tfrecord_writer)
 
-        tmp_dir = os.path.join(_DIR_PROCESSED, 'Nonsegmented')
+        tmp_dir = os.path.join(_dir_processed, setname)
         tf.gfile.DeleteRecursively(tmp_dir)
 
-    # Next, process the segmented data:
-    with tf.python_io.TFRecordWriter(testing_filename) as tfrecord_writer:
-        data_filename = os.path.join(_DIR_RAW, _SEGMENTED)
-        archive = zipfile.ZipFile(data_filename)
-        archive.extractall(_DIR_PROCESSED)
-        filenames, class_names = _get_filenames_and_classes(_DIR_PROCESSED, 'Segmented', exclude_list)
-        class_dict = dict(zip(class_names, range(len(class_names))))
+    # # First, process test data:
+    # with tf.python_io.TFRecordWriter(testing_filename) as tfrecord_writer:
+    #     data_filename = os.path.join(_dir_raw)
+    #     archive = zipfile.ZipFile(data_filename)
+    #     archive.extractall(_dir_processed)
+    #     # filenames, class_names = _get_filenames_and_classes(_dir_processed, [setname, 'test'], exclude_list)
+    #     class_dict = dict(zip(class_names, range(len(class_names))))
 
-        _convert_to_tfrecord(filenames, class_dict, tfrecord_writer)
+    #     _convert_to_tfrecord(filenames, class_dict, tfrecord_writer)
 
-        tmp_dir = os.path.join(_DIR_PROCESSED, 'Segmented')
-        tf.gfile.DeleteRecursively(tmp_dir)
+    #     tmp_dir = os.path.join(_dir_processed, setname)
+    #     tf.gfile.DeleteRecursively(tmp_dir)
+
+    print('\nFinished converting the PSD %s dataset!' % setname)
 
 
-    print('\nFinished converting the PSD dataset!')
+
+  
+
+
+    
