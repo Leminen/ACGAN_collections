@@ -78,7 +78,7 @@ def hparams_parser(hparams_string):
     
     parser.add_argument('--backup_frequency',
                         type = int,
-                        default = 10,
+                        default = '10',
                         help = 'Number of iterations between backup of network weights')
 
     return parser.parse_args(shlex.split(hparams_string))
@@ -137,8 +137,8 @@ class acgan_Wgp(object):
         self.gp_lambda = args.gp_lambda
         self.class_scale_d = args.class_scale_d
         self.class_scale_g = args.class_scale_g
-        # self.d_lr = 0.00009
-        # self.g_lr = 0.001
+
+        self.backup_frequency = args.backup_frequency
 
  
     def __generator(self, noise, lbls_onehot, weight_decay = 2.5e-5, is_training = True, reuse=False):
@@ -450,7 +450,7 @@ class acgan_Wgp(object):
             sess.run(tf.global_variables_initializer())
             
             # Create Saver object for loading and storing checkpoints
-            saver = tf.train.Saver()
+            saver = tf.train.Saver(max_to_keep=100)
             
             # Create Writer object for storing graph and summaries for TensorBoard
             writer = tf.summary.FileWriter(self.dir_logs, sess.graph)
@@ -521,7 +521,7 @@ class acgan_Wgp(object):
                         break
                 
                 # Save model variables to checkpoint
-                if epoch_n % 1 == 0:
+                if (epoch_n +1) % self.backup_frequency == 0:
                     saver.save(sess,os.path.join(self.dir_checkpoints, self.model + '.model'), global_step=epoch_n)
             
     
