@@ -75,11 +75,16 @@ def hparams_parser(hparams_string):
                         type = float,
                         default = '1',
                         help = 'Scale significance of generator class loss')
+    
+    parser.add_argument('--backup_frequency',
+                        type = int,
+                        default = 10,
+                        help = 'Number of iterations between backup of network weights')
 
     return parser.parse_args(shlex.split(hparams_string))
 
 class acgan_Wgp(object):
-    def __init__(self, dataset, hparams_string):
+    def __init__(self, dataset, hparams_string, evaluation = False):
 
         args = hparams_parser(hparams_string)
 
@@ -96,9 +101,10 @@ class acgan_Wgp(object):
         utils.checkfolder(self.dir_logs)
         utils.checkfolder(self.dir_results)
 
-        dir_configuration = self.dir_base + '/configuration.txt'
-        with open(dir_configuration, "w") as text_file:
-            print(str(args), file=text_file)
+        if evaluation:
+            args = utils.load_model_configuration(self.dir_base)
+        else:
+            utils.save_model_configuration(args, self.dir_base)
 
         if dataset == 'MNIST':
             self.dateset_filenames = ['data/processed/MNIST/train.tfrecord']
@@ -436,6 +442,9 @@ class acgan_Wgp(object):
         # create constant test variable to inspect changes in the model
         test_noise, test_lbls = self._genTestInput(self.lbls_dim, n_samples = self.n_testsamples)
 
+        dir_results_train = os.path.join(self.dir_results, 'Training')
+        utils.checkfolder(dir_results_train)
+
         with tf.Session() as sess:
             # Initialize all model Variables.
             sess.run(tf.global_variables_initializer())
@@ -465,7 +474,7 @@ class acgan_Wgp(object):
                                    input_test_lbls:     test_lbls})
 
                     writer.add_summary(summaryImg_tb, global_step=-1)
-                    self.save_image_local(summaryImg, 'Epoch_' + str(-1))
+                    utils.save_image_local(summaryImg, dir_results_train, 'Epoch_' + str(-1))
 
                 # Initiate or Re-initiate iterator
                 sess.run(iterator.initializer)
@@ -507,7 +516,7 @@ class acgan_Wgp(object):
                                         input_test_lbls:     test_lbls})
 
                         writer.add_summary(summaryImg_tb, global_step=epoch_n)
-                        self.save_image_local(summaryImg, 'Epoch_' + str(epoch_n))
+                        utils.save_image_local(summaryImg, dir_results_train, 'Epoch_' + str(epoch_n))
 
                         break
                 
@@ -516,16 +525,61 @@ class acgan_Wgp(object):
                     saver.save(sess,os.path.join(self.dir_checkpoints, self.model + '.model'), global_step=epoch_n)
             
     
-    def predict(self):
-        """ Run prediction of the network
+    def evaluate(self):
+        """ Run experiments to evaluate the performance of the model
         Args:
     
         Returns:
         """
-        
-        # not implemented yet
+
+        input_lbls = tf.placeholder(
+            dtype = tf.float32, 
+            shape = [None, self.lbls_dim], 
+            name = 'input_test_lbls')
+        input_noise = tf.placeholder(
+            dtype = tf.float32, 
+            shape = [None, self.unstructured_noise_dim], 
+            name = 'input_test_noise')
+
+        _  = self.__generator(input_noise, input_lbls)
+        generated_images = self.__generator(input_noise, input_lbls, is_training=False, reuse=True)
+
+        num_samples = 200
+
         with tf.Session() as sess:
+            # Initialize all model Variables.
             sess.run(tf.global_variables_initializer())
+            
+            # Create Saver object for loading and storing checkpoints
+            saver = tf.train.Saver()
+
+            # Reload Tensor values from latest checkpoint
+            ckpt = tf.train.get_checkpoint_state(self.dir_checkpoints)
+            
+            if ckpt and ckpt.model_checkpoint_path:
+                saver.restore(sess, ckpt.model_checkpoint_path)
+        
+            # Generate evaluation noise
+            np.random.seed(seed = 0)
+            eval_noise = np.random.uniform(low = -1.0, high = 1.0, size = [num_samples, self.unstructured_noise_dim])
+
+            # Generate artificial images for each class
+            for i in range(0,self.lbls_dim):
+                utils.show_message('Generating images for class ' + str(i))
+                
+                eval_lbls = np.zeros(shape = [num_samples, self.lbls_dim])
+                eval_lbls[:,i] = 1
+
+                eval_images = sess.run(
+                    generated_images, 
+                    feed_dict={input_noise: eval_noise,
+                               input_lbls:  eval_lbls})
+                
+                dir_results_eval = os.path.join(self.dir_results, 'Evaluation', str(i))
+                utils.checkfolder(dir_results_eval)
+
+                for j in range(0,num_samples):
+                    utils.save_image_local(eval_images[j,:,:,:], dir_results_eval,'Sample_' + str(j))
     
     
     def _genLatentCodes(self, image_proto, lbl_proto, class_proto, height_proto, width_proto, channels_proto, origin_proto):
@@ -588,9 +642,5 @@ class acgan_Wgp(object):
 
         return test_unstructured_noise, test_labels
 
-    def save_image_local(self, image, infostr):
-        datestr = datetime.datetime.now().strftime('%Y%m%d_T%H%M%S')
-        path = self.dir_results + '/' + datestr + '_' + infostr + '.png'
-        image = np.squeeze(image)
-        scipy.misc.imsave(path, image)
+    
 

@@ -12,6 +12,7 @@ import gzip
 import zipfile
 import tensorflow as tf
 
+import src.utils as utils
 import src.data.util_data as util_data
 
 # The URLs where the PSD data can be downloaded.
@@ -226,6 +227,8 @@ def process(dataset_part):
         class_dict = dict(zip(class_names, range(len(class_names))))
 
         _convert_to_tfrecord(filenames, class_dict, tfrecord_writer)
+
+        utils.save_dict(class_dict, _dir_processed, 'class_dict.json')
 
         tmp_dir = os.path.join(_dir_processed, setname)
         tf.gfile.DeleteRecursively(tmp_dir)

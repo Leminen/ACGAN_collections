@@ -49,9 +49,9 @@ def parse_args():
                         action='store_true', 
                         help = 'Run configuration and training network [Defaults to False if argument is omitted]')
 
-    parser.add_argument('--visualize', 
+    parser.add_argument('--evaluate_model', 
                         action='store_true', 
-                        help = 'Run visualization of results [Defaults to False if argument is omitted]')
+                        help = 'Run evaluation of the model by computing and visualizing the results [Defaults to False if argument is omitted]')
     
 # ----------------------------------------------------------------------------------------------------------------------
 # Define the arguments used in the entire pipeline
@@ -155,8 +155,15 @@ def main():
         #     model.train(dataset_str = args.dataset, epoch_N = 25, batch_N = 64)
     
     # Visualize results
-    if args.visualize:
-        print('Visualizing Results')
+    if args.evaluate_model:
+        utils.show_message('Evaluating Network: {0}'.format(args.model), lvl = 1)
+
+        if args.model == 'acgan_Wgp':
+            model = acgan_Wgp(dataset = args.dataset, 
+                              hparams_string = args.hparams,
+                              evaluation = True)
+            model.evaluate()
+
         #################################
         ####### To Be Implemented #######
         #################################
