@@ -16,7 +16,6 @@ import scipy
 import argparse
 import shlex
 
-import src.data.datasets.psd as psd_dataset
 import src.utils as utils
 import src.data.util_data as util_data
 
@@ -98,10 +97,10 @@ def hparams_parser_evaluate(hparams_string):
     return parser.parse_args(shlex.split(hparams_string))
 
 
-class acgan_Wgp(object):
+class acgan_Wgp_v01(object):
     def __init__(self, dataset, id):
 
-        self.model = 'acgan_Wgp'
+        self.model = 'acgan_Wgp_v01'
         if id != None:
             self.model = self.model + '_' + id
 
@@ -117,17 +116,7 @@ class acgan_Wgp(object):
         if dataset == 'MNIST':
             self.dateset_filenames = ['data/processed/MNIST/train.tfrecord']
             self.lbls_dim = 10
-            self.image_dims = [128,128,1]
-
-        elif dataset == 'PSD_Nonsegmented':
-            self.dateset_filenames = ['data/processed/PSD_Nonsegmented/train.tfrecord']
-            self.lbls_dim = 9
-            self.image_dims = [128,128,3]
-
-        elif dataset == 'PSD_Segmented':
-            self.dateset_filenames = ['data/processed/PSD_Segmented/train.tfrecord']
-            self.lbls_dim = 9
-            self.image_dims = [128,128,3]
+            self.image_dims = [28,28,1]
 
         else:
             raise ValueError('Selected Dataset is not supported by model: acgan_Wgp')
@@ -144,11 +133,11 @@ class acgan_Wgp(object):
         Args:
             inputs: A 2-tuple of Tensors (unstructured_noise, labels_onehot).
                 inputs[0] and inputs[1] is both 2D. All must have the same first dimension.
-            categorical_dim: Dimensions of the incompressible categorical noise.
             weight_decay: The value of the l2 weight decay.
             is_training: If `True`, batch norm uses batch statistics. If `False`, batch
                 norm uses the exponential moving average collected from population 
                 statistics.
+            reuse: If `True`, the variables in scope will be reused
         
         Returns:
             A generated image in the range [-1, 1].
@@ -161,16 +150,12 @@ class acgan_Wgp(object):
                 [layers.fully_connected, layers.conv2d_transpose],
                 activation_fn=tf.nn.relu, normalizer_fn=layers.batch_norm,
                 weights_regularizer=layers.l2_regularizer(weight_decay)),\
-            framework.arg_scope([layers.conv2d_transpose], padding = 'VALID'),\
             framework.arg_scope([layers.batch_norm], is_training=is_training):
-                net = layers.fully_connected(all_noise, 768, normalizer_fn = None)
-                net = tf.reshape(net, [-1, 1, 1, 768])
-                net = layers.conv2d_transpose(net, 384, [5, 5], stride = 2)
-                net = layers.conv2d_transpose(net, 256, [5, 5], stride = 2)
-                net = layers.conv2d_transpose(net, 192, [5, 5], stride = 2)
-                net = layers.conv2d_transpose(net,  64, [5, 5], stride = 2)
-                net = layers.conv2d_transpose(net, self.image_dims[2], [8, 8], stride = 2, normalizer_fn = None, activation_fn = tf.tanh)
-
+                net = layers.fully_connected(all_noise, 1024)
+                net = layers.fully_connected(net, 7 * 7 * 128)
+                net = tf.reshape(net, [-1, 7, 7, 128])
+                net = layers.conv2d_transpose(net, 64, [4, 4], stride = 2)
+                net = layers.conv2d_transpose(net, self.image_dims[2], [4, 4], stride = 2, normalizer_fn = None, activation_fn = tf.tanh)
                 # Make sure that generator output is in the same range as `inputs`
                 # ie [-1, 1].
         
@@ -193,38 +178,37 @@ class acgan_Wgp(object):
             class_dim: Number of classes to classify.
             is_training: If `True`, batch norm uses batch statistics. If `False`, batch
                 norm uses the exponential moving average collected from population statistics.
+            reuse: If `True`, the variables in scope will be reused
     
         Returns:
             Logits for the probability that the image is real, and logits for the probability
                 that the images belong to each class
         """
-        with tf.variable_scope("discriminator", reuse = reuse):
+        with tf.variable_scope("discriminator", reuse=reuse):
 
             with framework.arg_scope(
                 [layers.conv2d, layers.fully_connected],
                 activation_fn=leaky_relu, normalizer_fn=None,
                 weights_regularizer=layers.l2_regularizer(weight_decay),
-                biases_regularizer=layers.l2_regularizer(weight_decay)),\
-            framework.arg_scope([layers.batch_norm, layers.dropout], is_training=is_training):
-                net = layers.conv2d(img,  16, [3,3], stride = 2, normalizer_fn = None, padding='SAME')
-                net = layers.dropout(net)
-                net = layers.conv2d(net,  32, [3,3], stride = 1, padding='VALID')
-                net = layers.dropout(net)
-                net = layers.conv2d(net,  64, [3,3], stride = 2, padding='SAME')
-                net = layers.dropout(net)
-                net = layers.conv2d(net, 128, [3,3], stride = 1, padding='VALID')
-                net = layers.dropout(net)
-                net = layers.conv2d(net, 256, [3,3], stride = 2, padding='SAME')
-                net = layers.dropout(net)
-                net = layers.conv2d(net, 512, [3,3], stride = 1, padding='VALID')
-                net = layers.dropout(net)
-                net = tf.reshape(net,[-1, 13*13*512])
+                biases_regularizer=layers.l2_regularizer(weight_decay)):
+                net = layers.conv2d(img,  64, [4, 4], stride = 2)
+                net = layers.conv2d(net, 128, [4, 4], stride = 2)
+                net = layers.flatten(net)
+                net = layers.fully_connected(net, 1024, normalizer_fn=layers.layer_norm)
+        
+                logits_source = layers.fully_connected(net, 1, activation_fn=None)
 
-                logits_source = layers.fully_connected(net, 1, normalizer_fn = None, activation_fn = None)
-                logits_class = layers.fully_connected(net, self.lbls_dim, normalizer_fn = None, activation_fn=None)
+                # Recognition network for latent variables has an additional layer
+                with framework.arg_scope([layers.batch_norm], is_training=is_training):
+                    encoder = layers.fully_connected(
+                        net, 128, normalizer_fn=layers.batch_norm)
+
+                # Compute logits for each category of categorical latent.
+                logits_class = layers.fully_connected(
+                    encoder, self.lbls_dim, activation_fn=None)
 
                 return logits_source, logits_class
-    
+
 
     def _create_inference(self, images, labels, noise):
         """ Define the inference model for the network
@@ -441,9 +425,10 @@ class acgan_Wgp(object):
             shape = [self.n_testsamples * self.lbls_dim, self.unstructured_noise_dim], 
             name = 'input_test_noise')
 
+        images = input_images       
         
         # Define model, loss, optimizer and summaries.
-        logits_source, logits_class, artificial_images = self._create_inference(input_images, input_lbls, input_unstructured_noise)
+        logits_source, logits_class, artificial_images = self._create_inference(images, input_lbls, input_unstructured_noise)
         loss_discriminator, loss_generator = self._create_losses(logits_source, logits_class, artificial_images, input_lbls)
         train_op_discriminator, train_op_generator = self._create_optimizer(loss_discriminator, loss_generator)
         summary_op_dloss, summary_op_gloss, summary_op_img, summary_img = self._create_summaries(loss_discriminator, loss_generator, input_test_noise, input_test_lbls)
@@ -534,7 +519,7 @@ class acgan_Wgp(object):
                 
                 # Save model variables to checkpoint
                 if (epoch_n +1) % self.backup_frequency == 0:
-                    saver.save(sess,os.path.join(self.dir_checkpoints, self.model + '.model'), global_step=epoch_n)
+                    saver.save(sess,os.path.join(self.dir_checkpoints, self.model), global_step=epoch_n)
             
     
     def evaluate(self, hparams_string):
@@ -623,19 +608,6 @@ class acgan_Wgp(object):
         # Dataset specific preprocessing
         if self.dataset == 'MNIST':
             pass
-
-        elif self.dataset == 'PSD_Nonsegmented':
-            pass
-
-        elif self.dataset == 'PSD_Segmented':
-            max_dim = psd_dataset._LARGE_IMAGE_DIM
-            height_diff = max_dim - height_proto
-            width_diff = max_dim - width_proto
-
-            paddings = tf.floor_div([[height_diff, height_diff], [width_diff, width_diff], [0,0]],2)
-            image = tf.pad(image, paddings, mode='CONSTANT', name=None, constant_values=-1)
-
-        image = tf.image.resize_images(image, size = self.image_dims[0:-1])  
 
         lbl = tf.one_hot(lbl_proto, self.lbls_dim)
 

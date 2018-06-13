@@ -15,27 +15,37 @@ import src.utils as utils
 import src.data.util_data as util_data
 
 
-def hparams_parser(hparams_string):
+def hparams_parser_train(hparams_string):
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--id',
-                        type=str,
-                        default = None,
-                        help = 'Optional ID to distinguise experiments')
+    parser.add_argument('--epoch_max', 
+                        type=int, default='100', 
+                        help='Max number of epochs to run')
 
-    ## add more model parameters to enable configuration from terminal
-    
+    parser.add_argument('--batch_size', 
+                        type=int, default='64', 
+                        help='Number of samples in each batch')
+
+    return parser.parse_args(shlex.split(hparams_string))
+
+
+def hparams_parser_evaluate(hparams_string):
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument('--epoch_no', 
+                        type=int,
+                        default=None, 
+                        help='Epoch no to reload')
+
     return parser.parse_args(shlex.split(hparams_string))
 
 
 class BasicModel(object):
-    def __init__(self, dataset, hparams_string):
-
-        args = hparams_parser(hparams_string)
+    def __init__(self, dataset, id):
 
         self.model = 'BasicModel'
-        if args.id != None:
-            self.model = self.model + '_' + args.id
+        if id != None:
+            self.model = self.model + '_' + id
 
         self.dir_base        = 'models/' + self.model
         self.dir_logs        = self.dir_base + '/logs'
@@ -45,11 +55,6 @@ class BasicModel(object):
         utils.checkfolder(self.dir_checkpoints)
         utils.checkfolder(self.dir_logs)
         utils.checkfolder(self.dir_results)
-
-        # Dumb model configuration (hparams) to txt file
-        dir_configuration = self.dir_base + '/configuration.txt'
-        with open(dir_configuration, "w") as text_file:
-            print(str(args), file=text_file)
 
         # Specify valid dataset for model
         if dataset == 'MNIST':
@@ -105,12 +110,19 @@ class BasicModel(object):
         return summary_op
         
         
-    def train(self, epoch_max, batch_size):
+    def train(self, hparams_string):
         """ Run training of the network
         Args:
     
         Returns:
         """
+        args_train = hparams_parser_train(hparams_string)
+
+        self.batch_size = args_train.batch_size
+        self.epoch_max = args_train.epoch_max
+
+        utils.save_model_configuration(args_train, self.dir_base)
+
         
         # Use dataset for loading in datasamples from .tfrecord (https://www.tensorflow.org/programmers_guide/datasets#consuming_tfrecord_data)
         # The iterator will get a new batch from the dataset each time a sess.run() is executed on the graph.
@@ -118,7 +130,7 @@ class BasicModel(object):
         dataset = dataset.map(util_data.decode_image)      # decoding the tfrecord
         dataset = dataset.map(self._preProcessData)        # potential local preprocessing of data
         dataset = dataset.shuffle(buffer_size = 10000, seed = None)
-        dataset = dataset.batch(batch_size = batch_size)
+        dataset = dataset.batch(batch_size = self.batch_size)
         iterator = dataset.make_initializable_iterator()
         inputs = iterator.get_next()
 
@@ -157,7 +169,7 @@ class BasicModel(object):
             
             interationCnt = 0
             # Do training loops
-            for epoch_n in range(epoch_start, epoch_max):
+            for epoch_n in range(epoch_start, self.epoch_max):
 
                 # Initiate or Re-initiate iterator
                 sess.run(iterator.initializer)
@@ -184,15 +196,42 @@ class BasicModel(object):
                 
             
     
-    def predict(self):
+    def evaluate(self, hparams_string):
         """ Run prediction of the network
         Args:
     
         Returns:
         """
+        args_train = utils.load_model_configuration(self.dir_base)
+        args_evaluate = hparams_parser_evaluate(hparams_string)
+
+        # Find specific checkpoint to reload else select newest
+        ckpt = tf.train.get_checkpoint_state(self.dir_checkpoints)
+        
+        if args_evaluate.epoch_no == None:
+            checkpoint_path = ckpt.model_checkpoint_path
+        else:
+            all_checkpoint_paths = ckpt.all_model_checkpoint_paths[:]
+            suffix_match = '-'+str(args_evaluate.epoch_no)
+            ckpt_match = [f for f in all_checkpoint_paths if f.endswith(suffix_match)]
+            
+            if ckpt_match:
+                checkpoint_path = ckpt_match[0]
+            else:
+                checkpoint_path = ckpt.model_checkpoint_path
+
         
         with tf.Session() as sess:
+            # Initialize all model Variables.
             sess.run(tf.global_variables_initializer())
+            
+            # Create Saver object for loading and storing checkpoints
+            saver = tf.train.Saver()
+
+            # Reload Tensor values from latest or specified checkpoint
+            saver.restore(sess, checkpoint_path)
+
+            ### Implement evaluation
     
 
     def _preProcessData(self, image_proto, lbl_proto, class_proto, height_proto, width_proto, channels_proto, origin_proto):

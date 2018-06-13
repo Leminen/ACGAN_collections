@@ -26,14 +26,18 @@ framework = tf.contrib.framework
 ds = tf.contrib.distributions
 
 leaky_relu = lambda net: tf.nn.leaky_relu(net, alpha=0.2)
+class OutOfRangeError(Exception): pass
 
-def hparams_parser(hparams_string):
+def hparams_parser_train(hparams_string):
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--id',
-                        type=str,
-                        default = None,
-                        help = 'Optional ID to distinguise experiments')
+    parser.add_argument('--epoch_max', 
+                        type=int, default='100', 
+                        help='Max number of epochs to run')
+
+    parser.add_argument('--batch_size', 
+                        type=int, default='64', 
+                        help='Number of samples in each batch')
 
     parser.add_argument('--lr_discriminator', 
                         type=float, 
@@ -52,31 +56,49 @@ def hparams_parser(hparams_string):
 
     parser.add_argument('--unstructured_noise_dim', 
                         type=int, 
-                        default='62',
+                        default='128',
                         help='Number of random input variables to the generator')
     
     parser.add_argument('--d_iter',
                         type = int,
-                        default = '1',
+                        default = '5',
                         help = 'Number of times the discriminator is trained each loop')
+    
+    parser.add_argument('--class_scale_d',
+                        type = float,
+                        default = '1',
+                        help = 'Scale significance of discriminator class loss')
 
-    parser.add_argument('--source_loss',
-                        type = str,
-                        default = 'minmax',
-                        choices = ['minmax',
-                                   'wasserstein'],
-                        help = 'Source loss function')
+    parser.add_argument('--class_scale_g',
+                        type = float,
+                        default = '1',
+                        help = 'Scale significance of generator class loss')
+    
+    parser.add_argument('--backup_frequency',
+                        type = int,
+                        default = '10',
+                        help = 'Number of iterations between backup of network weights')
 
     return parser.parse_args(shlex.split(hparams_string))
 
-class acgan(object):
-    def __init__(self, dataset, hparams_string):
 
-        args = hparams_parser(hparams_string)
+def hparams_parser_evaluate(hparams_string):
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument('--epoch_no', 
+                        type=int,
+                        default=None, 
+                        help='Epoch no to reload')
+
+    return parser.parse_args(shlex.split(hparams_string))
+
+
+class acgan(object):
+    def __init__(self, dataset, id):
 
         self.model = 'acgan'
-        if args.id != None:
-            self.model = self.model + '_' + args.id
+        if id != None:
+            self.model = self.model + '_' + id
 
         self.dir_base        = 'models/' + self.model
         self.dir_logs        = self.dir_base + '/logs'
@@ -87,35 +109,25 @@ class acgan(object):
         utils.checkfolder(self.dir_logs)
         utils.checkfolder(self.dir_results)
 
-        dir_configuration = self.dir_base + '/configuration.txt'
-        with open(dir_configuration, "w") as text_file:
-            print(str(args), file=text_file)
-
         if dataset == 'MNIST':
-            self.dateset_filenames =  ['data/processed/MNIST/train.tfrecord']
+            self.dateset_filenames = ['data/processed/MNIST/train.tfrecord']
             self.lbls_dim = 10
             self.image_dims = [128,128,1]
 
-        elif dataset == 'PSD':
-            self.dateset_filenames = ['data/processed/PSD/Nonsegmented.tfrecord']
-            self.lbls_dim = 12
+        elif dataset == 'PSD_Nonsegmented':
+            self.dateset_filenames = ['data/processed/PSD_Nonsegmented/train.tfrecord']
+            self.lbls_dim = 9
+            self.image_dims = [128,128,3]
+
+        elif dataset == 'PSD_Segmented':
+            self.dateset_filenames = ['data/processed/PSD_Segmented/train.tfrecord']
+            self.lbls_dim = 9
             self.image_dims = [128,128,3]
 
         else:
-            raise ValueError('Selected Dataset is not supported by model: acgan_v01')
-
-        self.unstructured_noise_dim = args.unstructured_noise_dim
+            raise ValueError('Selected Dataset is not supported by model: acgan_Wgp')
         
-        self.source_loss_fn = args.source_loss
-        self.d_learning_rate = args.lr_discriminator
-        self.g_learning_rate = args.lr_generator
-
-        self.d_iter = args.d_iter
-        self.n_testsamples = args.n_testsamples
-
-        
-        # self.d_lr = 0.00009
-        # self.g_lr = 0.001
+        self.dataset = dataset
  
     def __generator(self, noise, lbls_onehot, weight_decay = 2.5e-5, is_training = True, reuse=False):
         """InfoGAN discriminator network on MNIST digits.
@@ -217,8 +229,13 @@ class acgan(object):
         logits_source_real, logits_class_real = self.__discriminator(images)
         logits_source_fake, logits_class_fake = self.__discriminator(generated_images, reuse = True)
 
-        return [logits_source_real, logits_source_fake], [logits_class_real, logits_class_fake]
-    
+        logits_source = [logits_source_real, logits_source_fake]
+        logits_class = [logits_class_real, logits_class_fake]
+        artificial_images = [generated_images]
+
+        return logits_source, logits_class, artificial_images
+
+
     def _create_losses(self, logits_source, logits_class, labels):
         """ Define loss function[s] for the network
         Args:
@@ -229,61 +246,30 @@ class acgan(object):
         [logits_source_real, logits_source_fake] = logits_source
         [logits_class_real, logits_class_fake] = logits_class
 
-        # Source loss
-        if self.source_loss_fn == 'minmax':
-            # minmax source loss
-            loss_source_real_d = tf.reduce_mean(
-                tf.nn.sigmoid_cross_entropy_with_logits(
-                    labels = tf.ones_like(logits_source_real), 
-                    logits = logits_source_real,
-                    name = 'Loss_source_real_d'
-                ))
+        # Source losses
+        loss_source_real_d = tf.reduce_mean(
+            tf.nn.sigmoid_cross_entropy_with_logits(
+                labels = tf.ones_like(logits_source_real), 
+                logits = logits_source_real,
+                name = 'Loss_source_real_d'
+            ))
             
-            loss_source_fake_d = tf.reduce_mean(
-                tf.nn.sigmoid_cross_entropy_with_logits(
-                    labels = tf.zeros_like(logits_source_fake), 
-                    logits = logits_source_fake,
-                    name = 'Loss_source_fake_d'
-                ))
-            
-            # Source loss generator
-            loss_source_fake_g = tf.reduce_mean(
-                tf.nn.sigmoid_cross_entropy_with_logits(
-                    labels = tf.ones_like(logits_source_fake), 
-                    logits = logits_source_fake,
-                    name = 'Loss_source_fake_g'
-                ))
-            
-            loss_source_d = loss_source_real_d + loss_source_fake_d
-            loss_source_g = loss_source_fake_g
+        loss_source_fake_d = tf.reduce_mean(
+            tf.nn.sigmoid_cross_entropy_with_logits(
+                labels = tf.zeros_like(logits_source_fake), 
+                logits = logits_source_fake,
+                name = 'Loss_source_fake_d'
+            ))
         
-        elif self.source_loss_fn == 'wasserstein':
-            loss_source_real = tf.reduce_mean(
-                logits_source_real)
+        loss_source_fake_g = tf.reduce_mean(
+            tf.nn.sigmoid_cross_entropy_with_logits(
+                labels = tf.ones_like(logits_source_fake), 
+                logits = logits_source_fake,
+                name = 'Loss_source_fake_g'
+            ))
         
-            loss_source_fake = tf.reduce_mean(
-                logits_source_fake)
-
-            loss_source_d = -(loss_source_real - loss_source_fake)
-            loss_source_g = -loss_source_fake
-        
-        elif self.source_loss_fn == 'wasserstein_weighted':
-            weight_real = tf.reduce_max(logits_source_real)
-            logits_source_weighted_real = tf.divide(
-                logits_source_real, weight_real)
-
-            loss_source_real = tf.reduce_mean(
-                logits_source_weighted_real)
-        
-            weight_fake = tf.reduce_max(logits_source_fake)
-            logits_source_weighted_fake = tf.divide(
-                logits_source_fake, weight_fake)
-
-            loss_source_fake = tf.reduce_mean(
-                logits_source_weighted_fake)
-
-            loss_source_d = -(loss_source_real - loss_source_fake)
-            loss_source_g = -loss_source_fake
+        loss_source_discriminator = loss_source_real_d + loss_source_fake_d
+        loss_source_generator = loss_source_fake_g
 
         # Class losses
         loss_class_real = tf.reduce_mean(
@@ -300,10 +286,19 @@ class acgan(object):
                 name = 'Loss_class_fake'
         ))
 
-        loss_class = loss_class_real + loss_class_fake
+        loss_class_discriminator = loss_class_real + loss_class_fake
+        loss_class_generator = loss_class_fake
 
-        loss_discriminator = loss_source_d + loss_class
-        loss_generator = loss_source_g + loss_class
+        # Total losses, with scaled class loss
+        loss_total_discriminator = loss_source_discriminator + self.class_scale_d * loss_class_discriminator
+        loss_total_generator = loss_source_generator + self.class_scale_g * loss_class_generator
+
+        loss_discriminator = [loss_total_discriminator, 
+                              loss_source_discriminator, 
+                              loss_class_discriminator]
+        loss_generator     = [loss_total_generator, 
+                              loss_source_generator,
+                              loss_class_generator]
 
         return loss_discriminator, loss_generator
 
@@ -314,6 +309,10 @@ class acgan(object):
     
         Returns:
         """
+        # optimize on total loss
+        d_loss = loss_discriminator[0]
+        g_loss = loss_generator[0]
+
         # variables for discriminator
         d_vars = tf.get_collection(
             tf.GraphKeys.TRAINABLE_VARIABLES, scope='discriminator')
@@ -322,25 +321,16 @@ class acgan(object):
         g_vars = tf.get_collection(
             tf.GraphKeys.TRAINABLE_VARIABLES, scope='generator')
 
-        # If wasserstein loss is used define clip op to limit d_vars
-        if (self.source_loss_fn == 'wasserstein') or (self.source_loss_fn == 'wasserstein_weighted'):
-            clip_limits = [-0.01, 0.01]
-            clip_dvar_op = [var.assign(
-                tf.clip_by_value(var, clip_limits[0], clip_limits[1])
-                ) for var in d_vars]
-        else:
-            clip_dvar_op = tf.constant(0) # dummy op
-
         with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS)):
             # create train discriminator operation
             optimizer_discriminator = tf.train.AdamOptimizer(learning_rate = self.d_learning_rate, beta1 = 0.5)
-            train_op_discriminator = optimizer_discriminator.minimize(loss_discriminator, var_list=d_vars)
+            train_op_discriminator = optimizer_discriminator.minimize(d_loss, var_list=d_vars)
 
             # create train generator operation
             optimizer_generator = tf.train.AdamOptimizer(learning_rate = self.g_learning_rate, beta1 = 0.5)
-            train_op_generator = optimizer_generator.minimize(loss_generator, var_list=g_vars)
+            train_op_generator = optimizer_generator.minimize(g_loss, var_list=g_vars)
 
-            return train_op_discriminator, train_op_generator, clip_dvar_op
+        return train_op_discriminator, train_op_generator
         
     def _create_summaries(self, loss_discriminator, loss_generator, test_noise, test_labels):
         """ Create summaries for the network
@@ -353,30 +343,67 @@ class acgan(object):
         # Create image summaries to inspect the variation due to categorical latent codes
         with tf.name_scope("SummaryImages_ClassVariation"):
             summary_img = tfgan.eval.image_reshaper(tf.concat(test_images, 0), num_cols=self.lbls_dim)
-            summary_op_img = tf.summary.image('summary_images', summary_img, max_outputs = 20)
+            summary_op_img = tf.summary.image('In', summary_img, max_outputs = 1)
 
         ### Add loss summaries
-        with tf.name_scope("SummaryLosses"):
-            summary_op_dloss = tf.summary.scalar('loss_discriminator', loss_discriminator)
-            summary_op_gloss = tf.summary.scalar('loss_generator', loss_generator)
+        [loss_total_discriminator, loss_source_discriminator, loss_class_discriminator] = loss_discriminator
+        [loss_total_generator, loss_source_generator, loss_class_generator] = loss_generator
+
+        with tf.name_scope("SummaryLosses_Discriminator"):
+
+            summary_dloss_source = tf.summary.scalar('loss_source', loss_source_discriminator)
+            summary_dloss_class = tf.summary.scalar('loss_class', loss_class_discriminator)
+            summary_dloss_tot = tf.summary.scalar('loss_total', loss_total_discriminator)
+            summary_op_dloss = tf.summary.merge(
+                [summary_dloss_source,
+                 summary_dloss_class,
+                 summary_dloss_tot], name = 'loss_discriminator')
+
+        with tf.name_scope("SummaryLosses_Generator"):
+
+            summary_gloss_source = tf.summary.scalar('loss_source', loss_source_generator)
+            summary_gloss_class = tf.summary.scalar('loss_class', loss_class_generator)
+            summary_gloss_tot = tf.summary.scalar('loss_tot', loss_total_generator)
+            summary_op_gloss = tf.summary.merge(
+                [summary_gloss_source,
+                 summary_gloss_class,
+                 summary_gloss_tot], name = 'loss_generator')
             
-        return summary_op_dloss, summary_op_gloss, summary_op_img, summary_img
-                                                                 
+        return summary_op_dloss, summary_op_gloss, summary_op_img, summary_img                                                       
         
-    def train(self, epoch_N, batch_size):
+    def train(self, hparams_string):
         """ Run training of the network
         Args:
     
         Returns:
         """
+        args_train = hparams_parser_train(hparams_string)
+
+        self.batch_size = args_train.batch_size
+        self.epoch_max = args_train.epoch_max
+        self.unstructured_noise_dim = args_train.unstructured_noise_dim
+
+        self.d_learning_rate = args_train.lr_discriminator
+        self.g_learning_rate = args_train.lr_generator
+
+        self.d_iter = args_train.d_iter
+        self.n_testsamples = args_train.n_testsamples
+
+        self.class_scale_d = args_train.class_scale_d
+        self.class_scale_g = args_train.class_scale_g
+
+        self.backup_frequency = args_train.backup_frequency
+
+        utils.save_model_configuration(args_train, self.dir_base)
         
+
         # Use dataset for loading in datasamples from .tfrecord (https://www.tensorflow.org/programmers_guide/datasets#consuming_tfrecord_data)
         # The iterator will get a new batch from the dataset each time a sess.run() is executed on the graph.
         dataset = tf.data.TFRecordDataset(self.dateset_filenames)
         dataset = dataset.map(util_data.decode_image)      # decoding the tfrecord
         dataset = dataset.map(self._genLatentCodes)
         dataset = dataset.shuffle(buffer_size = 10000, seed = None)
-        dataset = dataset.batch(batch_size = batch_size)
+        dataset = dataset.batch(batch_size = self.batch_size)
         iterator = dataset.make_initializable_iterator()
         input_getBatch = iterator.get_next()
 
@@ -401,15 +428,12 @@ class acgan(object):
             dtype = tf.float32, 
             shape = [self.n_testsamples * self.lbls_dim, self.unstructured_noise_dim], 
             name = 'input_test_noise')
-
-        # images = tf.image.grayscale_to_rgb(input_images)
-        images = input_images
-        images = tf.image.resize_images(images, size = [128, 128])        
+               
         
         # Define model, loss, optimizer and summaries.
-        logits_source, logits_class = self._create_inference(images, input_lbls, input_unstructured_noise)
+        logits_source, logits_class, _ = self._create_inference(input_images, input_lbls, input_unstructured_noise)
         loss_discriminator, loss_generator = self._create_losses(logits_source, logits_class, input_lbls)
-        train_op_discriminator, train_op_generator, clip_dvar_op = self._create_optimizer(loss_discriminator, loss_generator)
+        train_op_discriminator, train_op_generator = self._create_optimizer(loss_discriminator, loss_generator)
         summary_op_dloss, summary_op_gloss, summary_op_img, summary_img = self._create_summaries(loss_discriminator, loss_generator, input_test_noise, input_test_lbls)
 
         # show network architecture
@@ -417,6 +441,9 @@ class acgan(object):
 
         # create constant test variable to inspect changes in the model
         test_noise, test_lbls = self._genTestInput(self.lbls_dim, n_samples = self.n_testsamples)
+
+        dir_results_train = os.path.join(self.dir_results, 'Training')
+        utils.checkfolder(dir_results_train)
 
         with tf.Session() as sess:
             # Initialize all model Variables.
@@ -437,7 +464,7 @@ class acgan(object):
                 epoch_start = int(ckpt_name.split('-')[-1]) + 1
             
             interationCnt = 0
-            for epoch_n in range(epoch_start, epoch_N):
+            for epoch_n in range(epoch_start, self.epoch_max):
 
                 # Test model output before any training
                 if epoch_n == 0:
@@ -447,7 +474,7 @@ class acgan(object):
                                    input_test_lbls:     test_lbls})
 
                     writer.add_summary(summaryImg_tb, global_step=-1)
-                    self.save_image_local(summaryImg, 'Epoch_' + str(-1))
+                    utils.save_image_local(summaryImg, dir_results_train, 'Epoch_' + str(-1))
 
                 # Initiate or Re-initiate iterator
                 sess.run(iterator.initializer)
@@ -462,7 +489,7 @@ class acgan(object):
                             image_batch, lbl_batch, unst_noise_batch = sess.run(input_getBatch)
 
                             _, summary_dloss, _ = sess.run(
-                                [train_op_discriminator, summary_op_dloss, clip_dvar_op],
+                                [train_op_discriminator, summary_op_dloss],
                                 feed_dict={input_images:             image_batch,
                                         input_lbls:               lbl_batch,
                                         input_unstructured_noise: unst_noise_batch})
@@ -486,25 +513,85 @@ class acgan(object):
                                         input_test_lbls:     test_lbls})
 
                         writer.add_summary(summaryImg_tb, global_step=epoch_n)
-                        self.save_image_local(summaryImg, 'Epoch_' + str(epoch_n))
+                        utils.save_image_local(summaryImg, dir_results_train, 'Epoch_' + str(epoch_n))
 
                         break
                 
                 # Save model variables to checkpoint
-                if epoch_n % 1 == 0:
+                if (epoch_n +1) % self.backup_frequency == 0:
                     saver.save(sess,os.path.join(self.dir_checkpoints, self.model + '.model'), global_step=epoch_n)
             
     
-    def predict(self):
-        """ Run prediction of the network
+    def evaluate(self, hparams_string):
+        """ Run experiments to evaluate the performance of the model
         Args:
     
         Returns:
         """
+        args_train = utils.load_model_configuration(self.dir_base)
+        args_evaluate = hparams_parser_evaluate(hparams_string)
+
+        self.unstructured_noise_dim = args_train.unstructured_noise_dim
+
+        input_lbls = tf.placeholder(
+            dtype = tf.float32, 
+            shape = [None, self.lbls_dim], 
+            name = 'input_test_lbls')
+        input_noise = tf.placeholder(
+            dtype = tf.float32, 
+            shape = [None, self.unstructured_noise_dim], 
+            name = 'input_test_noise')
+
+        _  = self.__generator(input_noise, input_lbls)
+        generated_images = self.__generator(input_noise, input_lbls, is_training=False, reuse=True)
+
+        num_samples = 200
+
+        ckpt = tf.train.get_checkpoint_state(self.dir_checkpoints)
         
-        # not implemented yet
+        if args_evaluate.epoch_no == None:
+            checkpoint_path = ckpt.model_checkpoint_path
+        else:
+            all_checkpoint_paths = ckpt.all_model_checkpoint_paths[:]
+            suffix_match = '-'+str(args_evaluate.epoch_no)
+            ckpt_match = [f for f in all_checkpoint_paths if f.endswith(suffix_match)]
+            
+            if ckpt_match:
+                checkpoint_path = ckpt_match[0]
+            else:
+                checkpoint_path = ckpt.model_checkpoint_path
+
         with tf.Session() as sess:
+            # Initialize all model Variables.
             sess.run(tf.global_variables_initializer())
+            
+            # Create Saver object for loading and storing checkpoints
+            saver = tf.train.Saver()
+
+            # Reload Tensor values from latest or specified checkpoint
+            saver.restore(sess, checkpoint_path)
+        
+            # Generate evaluation noise
+            np.random.seed(seed = 0)
+            eval_noise = np.random.uniform(low = -1.0, high = 1.0, size = [num_samples, self.unstructured_noise_dim])
+
+            # Generate artificial images for each class
+            for i in range(0,self.lbls_dim):
+                utils.show_message('Generating images for class ' + str(i))
+                
+                eval_lbls = np.zeros(shape = [num_samples, self.lbls_dim])
+                eval_lbls[:,i] = 1
+
+                eval_images = sess.run(
+                    generated_images, 
+                    feed_dict={input_noise: eval_noise,
+                               input_lbls:  eval_lbls})
+                
+                dir_results_eval = os.path.join(self.dir_results, 'Evaluation', str(i))
+                utils.checkfolder(dir_results_eval)
+
+                for j in range(0,num_samples):
+                    utils.save_image_local(eval_images[j,:,:,:], dir_results_eval,'Sample_' + str(j))
     
     
     def _genLatentCodes(self, image_proto, lbl_proto, class_proto, height_proto, width_proto, channels_proto, origin_proto):
@@ -525,6 +612,15 @@ class acgan(object):
         # image = tf.multiply(image, mask)
 
         image = image_proto
+        if self.dataset == 'MNIST':
+            pass
+
+        elif self.dataset == 'PSD_Nonsegmented':
+            pass
+
+        elif self.dataset == 'PSD_Segmented':
+            pass
+
         image = tf.image.resize_images(image, size = [128, 128])  
 
         lbl = tf.one_hot(lbl_proto, self.lbls_dim)
@@ -552,9 +648,4 @@ class acgan(object):
 
         return test_unstructured_noise, test_labels
 
-    def save_image_local(self, image, infostr):
-        datestr = datetime.datetime.now().strftime('%Y%m%d_T%H%M%S')
-        path = self.dir_results + '/' + datestr + '_' + infostr + '.png'
-        image = np.squeeze(image)
-        scipy.misc.imsave(path, image)
 

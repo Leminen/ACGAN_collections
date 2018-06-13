@@ -22,6 +22,7 @@ from src.models.BasicModel import BasicModel
 from src.models.acgan_v01 import acgan_v01
 from src.models.acgan import acgan
 from src.models.acgan_Wgp import acgan_Wgp
+from src.models.acgan_Wgp_v01 import acgan_Wgp_v01
 from src.visualization import visualize
 
 DEVICE_ID_LIST = GPUtil.getFirstAvailable(attempts = 100, interval = 120)
@@ -62,7 +63,8 @@ def parse_args():
                         default='acgan', 
                         choices=['acgan_v01', 
                                  'acgan', 
-                                 'acgan_Wgp'],
+                                 'acgan_Wgp',
+                                 'acgan_Wgp_v01'],
                         #required = True,
                         help='The name of the network model')
 
@@ -72,19 +74,15 @@ def parse_args():
                                  'PSD_Nonsegmented',
                                  'PSD_Segmented'],
                         #required = True,
-                        help='The name of dataset')
-
-    parser.add_argument('--epoch_max', 
-                        type=int, default='20', 
-                        help='The name of dataset')
-
-    parser.add_argument('--batch_size', 
-                        type=int, default='32', 
-                        help='The name of dataset')                    
+                        help='The name of dataset')                   
     
 # ----------------------------------------------------------------------------------------------------------------------
 # Define the arguments for the training
 # ----------------------------------------------------------------------------------------------------------------------
+    parser.add_argument('--id',
+                        type= str,
+                        default = None,
+                        help = 'Optional ID, to distinguise experiments')
 
     parser.add_argument('--hparams',
                         type=str, default = '',
@@ -128,9 +126,11 @@ def main():
         utils.show_message('Configuring and Training Network: {0}'.format(args.model), lvl = 1)        
 
         if args.model == 'BasicModel':
-            model = BasicModel()
-            model.train(dataset_str = args.dataset, epoch_N = args.epoch_max, batch_N = 64)
-               
+            model = BasicModel(
+                dataset = args.dataset,
+                id = args.id)
+            model.train(hparams_string = args.hparams)
+
         elif args.model == 'acgan_v01':
             model = acgan_v01(dataset=args.dataset, 
                               hparams_string=args.hparams)
@@ -138,31 +138,53 @@ def main():
                         batch_size = args.batch_size)
         
         elif args.model == 'acgan':
-            model = acgan(dataset = args.dataset, 
-                          hparams_string = args.hparams)
-            model.train(epoch_N = args.epoch_max, 
-                        batch_size = args.batch_size)
+            model = acgan(
+                dataset = args.dataset,
+                id = args.id)
+            model.train(hparams_string = args.hparams)
 
         elif args.model == 'acgan_Wgp':
-            model = acgan_Wgp(dataset = args.dataset, 
-                              hparams_string = args.hparams)
-            model.train(epoch_N = args.epoch_max, 
-                        batch_size = args.batch_size)
+            model = acgan_Wgp(
+                dataset = args.dataset,
+                id = args.id)
+            model.train(hparams_string = args.hparams)
+
+        elif args.model == 'acgan_Wgp_v01':
+            model = acgan_Wgp_v01(
+                dataset = args.dataset,
+                id = args.id)
+            model.train(hparams_string = args.hparams)
         
         
-        # elif args.model == 'weedGAN':
-        #     model = weedGAN()
-        #     model.train(dataset_str = args.dataset, epoch_N = 25, batch_N = 64)
-    
-    # Visualize results
+  
+    # Evaluate model
     if args.evaluate_model:
         utils.show_message('Evaluating Network: {0}'.format(args.model), lvl = 1)
 
-        if args.model == 'acgan_Wgp':
-            model = acgan_Wgp(dataset = args.dataset, 
-                              hparams_string = args.hparams,
-                              evaluation = True)
-            model.evaluate()
+        if args.model == 'BasicModel':
+            model = BasicModel(
+                dataset = args.dataset,
+                id = args.id)
+            model.evaluate(hparams_string = args.hparams)
+        
+        elif args.model == 'acgan':
+            model = acgan(
+                dataset = args.dataset,
+                id = args.id)
+            model.evaluate(hparams_string = args.hparams)
+
+        elif args.model == 'acgan_Wgp':
+            model = acgan_Wgp(
+                dataset = args.dataset,
+                id = args.id)
+            model.evaluate(hparams_string = args.hparams)
+
+        elif args.model == 'acgan_Wgp_v01':
+            model = acgan_Wgp_v01(
+                dataset = args.dataset,
+                id = args.id)
+            model.evaluate(hparams_string = args.hparams)
+
 
         #################################
         ####### To Be Implemented #######
