@@ -576,6 +576,8 @@ class acgan_Wgp(object):
             else:
                 checkpoint_path = ckpt.model_checkpoint_path
 
+        
+
         with tf.Session() as sess:
             # Initialize all model Variables.
             sess.run(tf.global_variables_initializer())
@@ -584,6 +586,7 @@ class acgan_Wgp(object):
             saver = tf.train.Saver()
 
             # Reload Tensor values from latest or specified checkpoint
+            utils.show_message('Restoring model parameters from: {0}'.format(checkpoint_path))
             saver.restore(sess, checkpoint_path)
         
             # Generate evaluation noise
