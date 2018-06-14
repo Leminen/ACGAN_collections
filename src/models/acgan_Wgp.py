@@ -543,6 +543,10 @@ class acgan_Wgp(object):
     
         Returns:
         """
+        num_samples = 200
+        num_interpolations = 50
+        num_interpolation_samples = 11
+
         args_train = utils.load_model_configuration(self.dir_base)
         args_evaluate = hparams_parser_evaluate(hparams_string)
 
@@ -559,8 +563,9 @@ class acgan_Wgp(object):
 
         _  = self.__generator(input_noise, input_lbls)
         generated_images = self.__generator(input_noise, input_lbls, is_training=False, reuse=True)
+        # interpolation_img = tfgan.eval.image_reshaper(tf.concat(generated_images, 0), num_cols=num_interpolations)
 
-        num_samples = 200
+        
 
         ckpt = tf.train.get_checkpoint_state(self.dir_checkpoints)
         
@@ -592,24 +597,59 @@ class acgan_Wgp(object):
             # Generate evaluation noise
             np.random.seed(seed = 0)
             eval_noise = np.random.uniform(low = -1.0, high = 1.0, size = [num_samples, self.unstructured_noise_dim])
+            alpha = np.linspace(0.0,1.0, num_interpolation_samples)
 
             # Generate artificial images for each class
-            for i in range(0,self.lbls_dim):
-                utils.show_message('Generating images for class ' + str(i))
+            for idx_class in range(0,self.lbls_dim):
+                
+                utils.show_message('Generating images for class ' + str(idx_class))
                 
                 eval_lbls = np.zeros(shape = [num_samples, self.lbls_dim])
-                eval_lbls[:,i] = 1
+                eval_lbls[:,idx_class] = 1
 
                 eval_images = sess.run(
                     generated_images, 
                     feed_dict={input_noise: eval_noise,
                                input_lbls:  eval_lbls})
                 
-                dir_results_eval = os.path.join(self.dir_results, 'Evaluation', str(i))
+                dir_results_eval = os.path.join(self.dir_results, 'Evaluation', str(idx_class))
                 utils.checkfolder(dir_results_eval)
 
-                for j in range(0,num_samples):
-                    utils.save_image_local(eval_images[j,:,:,:], dir_results_eval,'Sample_' + str(j))
+                for idx_sample in range(num_samples):
+                    utils.save_image_local(
+                        eval_images[idx_sample,:,:,:], 
+                        dir_results_eval,
+                        'Sample_{0}'.format(idx_sample))
+
+                # Create interpolations between pairs of noise vectors
+                np.random.seed(seed = 0)
+                for _ in range(num_interpolations):
+                    
+                    idx_pair = np.random.choice(num_samples,2)
+
+                    noise_vector0 = np.tile(eval_noise[idx_pair[0]],[num_interpolation_samples,1])
+                    noise_vector1 = np.tile(eval_noise[idx_pair[1]],[num_interpolation_samples,1])
+
+                    eval_noise_interpolation = (alpha * noise_vector0.T).T + ((1-alpha) * noise_vector1.T).T
+                    eval_lbls = np.zeros(shape = [num_interpolation_samples, self.lbls_dim])
+                    eval_lbls[:,idx_class] = 1
+
+                    eval_images_interpolation = sess.run(
+                        generated_images, 
+                        feed_dict={input_noise: eval_noise_interpolation,
+                                   input_lbls:  eval_lbls})
+                    
+                    interpolation_image = eval_images_interpolation[0,:,:]
+                    for idx_sample in range(1,num_interpolation_samples):
+                        interpolation_image = np.hstack(
+                            (interpolation_image, eval_images_interpolation[idx_sample,:,:,:])
+                        )
+                    
+                    utils.save_image_local(
+                        interpolation_image,
+                        dir_results_eval,
+                        'Interpolation_Sample_{0}_{1}'.format(idx_pair[0],idx_pair[1]))
+                    
     
     
     def _genLatentCodes(self, image_proto, lbl_proto, class_proto, height_proto, width_proto, channels_proto, origin_proto):

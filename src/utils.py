@@ -134,3 +134,8 @@ def save_image_local(image, path, infostr):
     path = os.path.join(path,filename)
     image = np.squeeze(image)
     scipy.misc.imsave(path, image)
+
+def save_image_local_batch(images,path,infostr):
+    n_images = images.shape[0]
+    for i in range(n_images):
+        save_image_local(images[i,:,:,:],path, infostr + '_' +str(i))
