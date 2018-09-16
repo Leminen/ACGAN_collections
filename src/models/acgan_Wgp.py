@@ -565,8 +565,6 @@ class acgan_Wgp(object):
         generated_images = self.__generator(input_noise, input_lbls, is_training=False, reuse=True)
         # interpolation_img = tfgan.eval.image_reshaper(tf.concat(generated_images, 0), num_cols=num_interpolations)
 
-        dir_results_eval = os.path.join(self.dir_results, 'Evaluation', str(idx_class))
-
         ckpt = tf.train.get_checkpoint_state(self.dir_checkpoints)
         
         if args_evaluate.epoch_no == None:
@@ -578,11 +576,9 @@ class acgan_Wgp(object):
             
             if ckpt_match:
                 checkpoint_path = ckpt_match[0]
-                dir_results_eval = os.path.join(self.dir_results, 'Evaluation_' + str(args_evaluate.epoch_no) , str(idx_class))
             else:
                 checkpoint_path = ckpt.model_checkpoint_path
-
-        utils.checkfolder(dir_results_eval)
+        
 
         with tf.Session() as sess:
             # Initialize all model Variables.
@@ -604,6 +600,11 @@ class acgan_Wgp(object):
             for idx_class in range(0,self.lbls_dim):
                 
                 utils.show_message('Generating images for class ' + str(idx_class))
+
+                dir_results_eval = os.path.join(self.dir_results, 'Evaluation', str(idx_class))
+                if args_evaluate.epoch_no != None:
+                    dir_results_eval = os.path.join(self.dir_results, 'Evaluation_' + str(args_evaluate.epoch_no) , str(idx_class))
+                utils.checkfolder(dir_results_eval)
                 
                 eval_lbls = np.zeros(shape = [num_samples, self.lbls_dim])
                 eval_lbls[:,idx_class] = 1
