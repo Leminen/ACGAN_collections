@@ -22,6 +22,7 @@ from src.models.BasicModel import BasicModel
 from src.models.acgan import acgan
 from src.models.WacGAN import WacGAN
 from src.models.WacGAN_small import WacGAN_small
+from src.models.WacGAN_info import WacGAN_info
 from src.visualization import visualize
 
 DEVICE_ID_LIST = GPUtil.getFirstAvailable(attempts = 100, interval = 120)
@@ -62,7 +63,8 @@ def parse_args():
                         default='acgan', 
                         choices=['acgan', 
                                  'WacGAN',
-                                 'WacGAN_small'],
+                                 'WacGAN_small',
+								 'WacGAN_info'],
                         #required = True,
                         help='The name of the network model')
 
@@ -146,6 +148,12 @@ def main():
                 dataset = args.dataset,
                 id = args.id)
             model.train(hparams_string = args.hparams)
+            
+        elif args.model == 'WacGAN_info':
+            model = WacGAN_info(
+                dataset = args.dataset,
+                id = args.id)
+            model.train(hparams_string = args.hparams)
         
         
   
@@ -173,6 +181,12 @@ def main():
 
         elif args.model == 'WacGAN_small':
             model = WacGAN_small(
+                dataset = args.dataset,
+                id = args.id)
+            model.evaluate(hparams_string = args.hparams)
+			
+        elif args.model == 'WacGAN_info':
+            model = WacGAN_info(
                 dataset = args.dataset,
                 id = args.id)
             model.evaluate(hparams_string = args.hparams)
