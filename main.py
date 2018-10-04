@@ -19,10 +19,9 @@ import argparse
 import src.utils as utils
 from src.data import dataset_manager
 from src.models.BasicModel import BasicModel
-from src.models.acgan_v01 import acgan_v01
 from src.models.acgan import acgan
-from src.models.acgan_Wgp import acgan_Wgp
-from src.models.acgan_Wgp_v01 import acgan_Wgp_v01
+from src.models.WacGAN import WacGAN
+from src.models.WacGAN_small import WacGAN_small
 from src.visualization import visualize
 
 DEVICE_ID_LIST = GPUtil.getFirstAvailable(attempts = 100, interval = 120)
@@ -61,10 +60,9 @@ def parse_args():
     parser.add_argument('--model', 
                         type=str, 
                         default='acgan', 
-                        choices=['acgan_v01', 
-                                 'acgan', 
-                                 'acgan_Wgp',
-                                 'acgan_Wgp_v01'],
+                        choices=['acgan', 
+                                 'WacGAN',
+                                 'WacGAN_small'],
                         #required = True,
                         help='The name of the network model')
 
@@ -130,12 +128,6 @@ def main():
                 dataset = args.dataset,
                 id = args.id)
             model.train(hparams_string = args.hparams)
-
-        elif args.model == 'acgan_v01':
-            model = acgan_v01(dataset=args.dataset, 
-                              hparams_string=args.hparams)
-            model.train(epoch_N = args.epoch_max, 
-                        batch_size = args.batch_size)
         
         elif args.model == 'acgan':
             model = acgan(
@@ -143,14 +135,14 @@ def main():
                 id = args.id)
             model.train(hparams_string = args.hparams)
 
-        elif args.model == 'acgan_Wgp':
-            model = acgan_Wgp(
+        elif args.model == 'WacGAN':
+            model = WacGAN(
                 dataset = args.dataset,
                 id = args.id)
             model.train(hparams_string = args.hparams)
 
-        elif args.model == 'acgan_Wgp_v01':
-            model = acgan_Wgp_v01(
+        elif args.model == 'WacGAN_small':
+            model = WacGAN_small(
                 dataset = args.dataset,
                 id = args.id)
             model.train(hparams_string = args.hparams)
@@ -173,14 +165,14 @@ def main():
                 id = args.id)
             model.evaluate(hparams_string = args.hparams)
 
-        elif args.model == 'acgan_Wgp':
-            model = acgan_Wgp(
+        elif args.model == 'WacGAN':
+            model = WacGAN(
                 dataset = args.dataset,
                 id = args.id)
             model.evaluate(hparams_string = args.hparams)
 
-        elif args.model == 'acgan_Wgp_v01':
-            model = acgan_Wgp_v01(
+        elif args.model == 'WacGAN_small':
+            model = WacGAN_small(
                 dataset = args.dataset,
                 id = args.id)
             model.evaluate(hparams_string = args.hparams)

@@ -15,6 +15,7 @@ import datetime
 import scipy
 import argparse
 import shlex
+from itertools import product
 
 import src.data.datasets.psd as psd_dataset
 import src.utils as utils
@@ -54,15 +55,15 @@ def hparams_parser_train(hparams_string):
                         default='20',
                         help='Number of samples in test images per class')
 
-    parser.add_argument('--unstructured_noise_dim', 
+    parser.add_argument('--unstructured_noise_dim',
                         type=int, 
                         default='128',
-                        help='Number of random input variables to the generator')
+                        help='Number of random inputn_testsamples')
     
     parser.add_argument('--d_iter',
                         type = int,
                         default = '5',
-                        help = 'Number of times the discriminator is trained each loop')
+                        help = 'Number of times the n_testsamples')
     
     parser.add_argument('--gp_lambda',
                         type = int,
@@ -98,10 +99,10 @@ def hparams_parser_evaluate(hparams_string):
     return parser.parse_args(shlex.split(hparams_string))
 
 
-class acgan_Wgp(object):
+class WacGAN_info(object):
     def __init__(self, dataset, id):
 
-        self.model = 'acgan_Wgp'
+        self.model = 'WacGAN_info'
         if id != None:
             self.model = self.model + '_' + id
 
@@ -130,12 +131,12 @@ class acgan_Wgp(object):
             self.image_dims = [128,128,3]
 
         else:
-            raise ValueError('Selected Dataset is not supported by model: acgan_Wgp')
+            raise ValueError('Selected Dataset is not supported by model: '+ self.model)
         
         self.dataset = dataset
 
  
-    def __generator(self, noise, lbls_onehot, weight_decay = 2.5e-5, is_training = True, reuse=False):
+    def __generator(self, noise, lbls_onehot, info_noise, weight_decay = 2.5e-5, is_training = True, reuse=False):
         """InfoGAN discriminator network on MNIST digits.
 
         Based on a paper https://arxiv.org/abs/1606.03657 and their code
@@ -155,7 +156,7 @@ class acgan_Wgp(object):
         """
         with tf.variable_scope("generator", reuse=reuse):
 
-            all_noise = tf.concat([noise, lbls_onehot], axis=1)
+            all_noise = tf.concat([noise, lbls_onehot, info_noise], axis=1)
         
             with framework.arg_scope(
                 [layers.fully_connected, layers.conv2d_transpose],
@@ -221,35 +222,37 @@ class acgan_Wgp(object):
                 net = tf.reshape(net,[-1, 13*13*512])
 
                 logits_source = layers.fully_connected(net, 1, normalizer_fn = None, activation_fn = None)
-                logits_class = layers.fully_connected(net, self.lbls_dim, normalizer_fn = None, activation_fn=None)
+                logits_class = layers.fully_connected(net, self.lbls_dim, normalizer_fn = None, activation_fn = None)
+                logits_info = layers.fully_connected(net, self.info_noise_dim, normalizer_fn = None, activation_fn = None)
 
-                return logits_source, logits_class
+                return logits_source, logits_class, logits_info
     
 
-    def _create_inference(self, images, labels, noise):
+    def _create_inference(self, images, labels, noise, info_noise):
         """ Define the inference model for the network
         Args:
     
         Returns:
         """
-        generated_images = self.__generator(noise, labels)
-        logits_source_real, logits_class_real = self.__discriminator(images)
-        logits_source_fake, logits_class_fake = self.__discriminator(generated_images, reuse = True)
+        generated_images = self.__generator(noise, labels, info_noise)
+        logits_source_real, logits_class_real, logits_info_real = self.__discriminator(images)
+        logits_source_fake, logits_class_fake, logits_info_fake = self.__discriminator(generated_images, reuse = True)
 
         epsilon = tf.random_uniform(shape = images.get_shape(),
                                     minval= 0.0,
                                     maxval= 1.0)
         interpolated_images = epsilon * images + (1-epsilon) * generated_images
-        logits_source_interpolates, logits_class_interpolates = self.__discriminator(interpolated_images, reuse = True)
+        logits_source_interpolates, logits_class_interpolates, logits_info_interpolates = self.__discriminator(interpolated_images, reuse = True)
 
         logits_source = [logits_source_real, logits_source_fake, logits_source_interpolates]
         logits_class = [logits_class_real, logits_class_fake, logits_class_interpolates]
+        logits_info = [logits_info_real, logits_info_fake, logits_info_interpolates]
         artificial_images = [generated_images, interpolated_images]
 
-        return logits_source, logits_class, artificial_images
+        return logits_source, logits_class, logits_info, artificial_images
 
     
-    def _create_losses(self, logits_source, logits_class, artificial_images, labels):
+    def _create_losses(self, logits_source, logits_class, logits_info, artificial_images, labels, latent_info):
         """ Define loss function[s] for the network
         Args:
     
@@ -258,6 +261,7 @@ class acgan_Wgp(object):
 
         [logits_source_real, logits_source_fake, logits_source_interpolates] = logits_source
         [logits_class_real, logits_class_fake, _] = logits_class
+        [_ , logits_info_fake, _] = logits_info
         [_ , interpolated_images] = artificial_images
 
         # Source losses
@@ -295,16 +299,21 @@ class acgan_Wgp(object):
         loss_class_discriminator = loss_class_real + loss_class_fake
         loss_class_generator = loss_class_fake
 
+        # info loss
+        loss_info = tf.reduce_mean(tf.reduce_sum(tf.square(latent_info - logits_info_fake), axis=1))
+
         # Total losses, with scaled class loss
-        loss_total_discriminator = loss_source_discriminator + self.class_scale_d * loss_class_discriminator
-        loss_total_generator = loss_source_generator + self.class_scale_g * loss_class_generator
+        loss_total_discriminator = loss_source_discriminator + self.class_scale_d * loss_class_discriminator + self.info_scale_d * loss_info
+        loss_total_generator = loss_source_generator + self.class_scale_g * loss_class_generator + self.info_scale_g * loss_info
 
         loss_discriminator = [loss_total_discriminator, 
                               loss_source_discriminator, 
-                              loss_class_discriminator]
+                              loss_class_discriminator,
+                              loss_info]
         loss_generator     = [loss_total_generator, 
                               loss_source_generator,
-                              loss_class_generator]
+                              loss_info,
+                              loss_info]
 
         return loss_discriminator, loss_generator
 
@@ -341,41 +350,45 @@ class acgan_Wgp(object):
         return train_op_discriminator, train_op_generator
 
         
-    def _create_summaries(self, loss_discriminator, loss_generator, test_noise, test_labels):
+    def _create_summaries(self, loss_discriminator, loss_generator, test_noise, test_labels, test_info):
         """ Create summaries for the network
         Args:
     
         Returns:
         """
-        test_images = self.__generator(test_noise, test_labels, is_training=False, reuse=True)
+        test_images = self.__generator(test_noise, test_labels, test_info, is_training=False, reuse=True)
 
         # Create image summaries to inspect the variation due to categorical latent codes
         with tf.name_scope("SummaryImages_ClassVariation"):
-            summary_img = tfgan.eval.image_reshaper(tf.concat(test_images, 0), num_cols=self.lbls_dim)
+            summary_img = tfgan.eval.image_reshaper(tf.concat(test_images, 0), num_cols=self.n_testsamples)
             summary_op_img = tf.summary.image('In', summary_img, max_outputs = 1)
 
         ### Add loss summaries
-        [loss_total_discriminator, loss_source_discriminator, loss_class_discriminator] = loss_discriminator
-        [loss_total_generator, loss_source_generator, loss_class_generator] = loss_generator
+        [loss_total_discriminator, loss_source_discriminator, loss_class_discriminator, loss_info_discriminator] = loss_discriminator
+        [loss_total_generator, loss_source_generator, loss_class_generator, loss_info_generator] = loss_generator
 
         with tf.name_scope("SummaryLosses_Discriminator"):
 
             summary_dloss_source = tf.summary.scalar('loss_source', loss_source_discriminator)
             summary_dloss_class = tf.summary.scalar('loss_class', loss_class_discriminator)
+            summary_dloss_info = tf.summary.scalar('loss_info', loss_info_discriminator)
             summary_dloss_tot = tf.summary.scalar('loss_total', loss_total_discriminator)
             summary_op_dloss = tf.summary.merge(
                 [summary_dloss_source,
                  summary_dloss_class,
+                 summary_dloss_info,
                  summary_dloss_tot], name = 'loss_discriminator')
 
         with tf.name_scope("SummaryLosses_Generator"):
 
             summary_gloss_source = tf.summary.scalar('loss_source', loss_source_generator)
             summary_gloss_class = tf.summary.scalar('loss_class', loss_class_generator)
+            summary_gloss_info = tf.summary.scalar('loss_info', loss_info_generator)
             summary_gloss_tot = tf.summary.scalar('loss_tot', loss_total_generator)
             summary_op_gloss = tf.summary.merge(
                 [summary_gloss_source,
                  summary_gloss_class,
+                 summary_gloss_info,
                  summary_gloss_tot], name = 'loss_generator')
             
         return summary_op_dloss, summary_op_gloss, summary_op_img, summary_img
@@ -393,6 +406,7 @@ class acgan_Wgp(object):
         self.epoch_max = args_train.epoch_max
 
         self.unstructured_noise_dim = args_train.unstructured_noise_dim
+        self.info_noise_dim = 2
         
         self.d_learning_rate = args_train.lr_discriminator
         self.g_learning_rate = args_train.lr_generator
@@ -403,6 +417,9 @@ class acgan_Wgp(object):
         self.gp_lambda = args_train.gp_lambda
         self.class_scale_d = args_train.class_scale_d
         self.class_scale_g = args_train.class_scale_g
+
+        self.info_scale_d = 1
+        self.info_scale_g = 1
 
         self.backup_frequency = args_train.backup_frequency
 
@@ -432,27 +449,35 @@ class acgan_Wgp(object):
             dtype = tf.float32, 
             shape = [None, self.unstructured_noise_dim], 
             name = 'input_unstructured_noise')
+        input_info_noise = tf.placeholder(
+            dtype = tf.float32, 
+            shape = [None, self.info_noise_dim], 
+            name = 'input_info_noise')
         input_test_lbls = tf.placeholder(
             dtype = tf.float32, 
-            shape = [self.n_testsamples * self.lbls_dim, self.lbls_dim], 
+            shape = [self.n_testsamples * self.n_testsamples, self.lbls_dim], 
             name = 'input_test_lbls')
         input_test_noise = tf.placeholder(
             dtype = tf.float32, 
-            shape = [self.n_testsamples * self.lbls_dim, self.unstructured_noise_dim], 
+            shape = [self.n_testsamples * self.n_testsamples, self.unstructured_noise_dim], 
             name = 'input_test_noise')
+        input_test_info_noise = tf.placeholder(
+            dtype = tf.float32, 
+            shape = [self.n_testsamples * self.n_testsamples, self.info_noise_dim], 
+            name = 'input_test_info_noise')
 
         
         # Define model, loss, optimizer and summaries.
-        logits_source, logits_class, artificial_images = self._create_inference(input_images, input_lbls, input_unstructured_noise)
-        loss_discriminator, loss_generator = self._create_losses(logits_source, logits_class, artificial_images, input_lbls)
+        logits_source, logits_class, logits_info, artificial_images = self._create_inference(input_images, input_lbls, input_unstructured_noise, input_info_noise)
+        loss_discriminator, loss_generator = self._create_losses(logits_source, logits_class, logits_info, artificial_images, input_lbls, input_info_noise)
         train_op_discriminator, train_op_generator = self._create_optimizer(loss_discriminator, loss_generator)
-        summary_op_dloss, summary_op_gloss, summary_op_img, summary_img = self._create_summaries(loss_discriminator, loss_generator, input_test_noise, input_test_lbls)
+        summary_op_dloss, summary_op_gloss, summary_op_img, summary_img = self._create_summaries(loss_discriminator, loss_generator, input_test_noise, input_test_lbls, input_test_info_noise)
 
         # show network architecture
         utils.show_all_variables()
 
         # create constant test variable to inspect changes in the model
-        test_noise, test_lbls = self._genTestInput(self.lbls_dim, n_samples = self.n_testsamples)
+        test_noise, test_lbls, test_info = self._genTestInput()
 
         dir_results_train = os.path.join(self.dir_results, 'Training')
         utils.checkfolder(dir_results_train)
@@ -480,10 +505,12 @@ class acgan_Wgp(object):
 
                 # Test model output before any training
                 if epoch_n == 0:
-                    summaryImg_tb, summaryImg = sess.run(
-                        [summary_op_img, summary_img],
-                        feed_dict={input_test_noise:    test_noise,
-                                   input_test_lbls:     test_lbls})
+                    for class_n in range(self.lbls_dim):
+                        summaryImg_tb, summaryImg = sess.run(
+                            [summary_op_img, summary_img],
+                            feed_dict={input_test_noise:        test_noise,
+                                    input_test_lbls:         test_lbls[class_n*(self.n_testsamples*self.n_testsamples):(class_n+1)*(self.n_testsamples*self.n_testsamples),:],
+                                    input_test_info_noise:   test_info})
 
                     writer.add_summary(summaryImg_tb, global_step=-1)
                     utils.save_image_local(summaryImg, dir_results_train, 'Epoch_' + str(-1))
@@ -498,7 +525,7 @@ class acgan_Wgp(object):
                 # for idx in range(0, num_batches):
                     try:
                         for _ in range(self.d_iter):
-                            image_batch, lbl_batch, unst_noise_batch = sess.run(input_getBatch)
+                            image_batch, lbl_batch, unst_noise_batch, info_noise_batch = sess.run(input_getBatch)
                             
                             if(image_batch.shape[0] != self.batch_size):
                                 raise OutOfRangeError
@@ -507,7 +534,8 @@ class acgan_Wgp(object):
                                 [train_op_discriminator, summary_op_dloss],
                                 feed_dict={input_images:            image_batch,
                                         input_lbls:                 lbl_batch,
-                                        input_unstructured_noise:   unst_noise_batch})
+                                        input_unstructured_noise:   unst_noise_batch,
+                                        input_info_noise:           info_noise_batch})
                                         
                         writer.add_summary(summary_dloss, global_step=interationCnt)
 
@@ -515,17 +543,20 @@ class acgan_Wgp(object):
                             [train_op_generator, summary_op_gloss],
                             feed_dict={input_images:            image_batch,
                                     input_lbls:                 lbl_batch,
-                                    input_unstructured_noise:   unst_noise_batch})
+                                    input_unstructured_noise:   unst_noise_batch,
+                                    input_info_noise:           info_noise_batch})
 
                         writer.add_summary(summary_gloss, global_step=interationCnt)
                         interationCnt += 1
 
                     except (tf.errors.OutOfRangeError, OutOfRangeError):
                         # Test current model
-                        summaryImg_tb, summaryImg = sess.run(
-                            [summary_op_img, summary_img],
-                            feed_dict={input_test_noise:    test_noise,
-                                        input_test_lbls:     test_lbls})
+                        for class_n in range(self.lbls_dim):
+                            summaryImg_tb, summaryImg = sess.run(
+                                [summary_op_img, summary_img],
+                                feed_dict={input_test_noise:        test_noise,
+                                        input_test_lbls:         test_lbls[class_n*(self.n_testsamples*self.n_testsamples):(class_n+1)*(self.n_testsamples*self.n_testsamples),:],
+                                        input_test_info_noise:   test_info})
 
                         writer.add_summary(summaryImg_tb, global_step=epoch_n)
                         utils.save_image_local(summaryImg, dir_results_train, 'Epoch_' + str(epoch_n))
@@ -551,6 +582,7 @@ class acgan_Wgp(object):
         args_evaluate = hparams_parser_evaluate(hparams_string)
 
         self.unstructured_noise_dim = args_train.unstructured_noise_dim
+        self.info_noise_dim = 2
 
         input_lbls = tf.placeholder(
             dtype = tf.float32, 
@@ -560,9 +592,13 @@ class acgan_Wgp(object):
             dtype = tf.float32, 
             shape = [None, self.unstructured_noise_dim], 
             name = 'input_test_noise')
+        input_info_noise = tf.placeholder(
+            dtype = tf.float32, 
+            shape = [None, self.info_noise_dim], 
+            name = 'input_test_noise')
 
-        _  = self.__generator(input_noise, input_lbls)
-        generated_images = self.__generator(input_noise, input_lbls, is_training=False, reuse=True)
+        _  = self.__generator(input_noise, input_lbls, input_info_noise)
+        generated_images = self.__generator(input_noise, input_lbls, input_info_noise, is_training=False, reuse=True)
         # interpolation_img = tfgan.eval.image_reshaper(tf.concat(generated_images, 0), num_cols=num_interpolations)
 
         ckpt = tf.train.get_checkpoint_state(self.dir_checkpoints)
@@ -594,6 +630,8 @@ class acgan_Wgp(object):
             # Generate evaluation noise
             np.random.seed(seed = 0)
             eval_noise = np.random.uniform(low = -1.0, high = 1.0, size = [num_samples, self.unstructured_noise_dim])
+            eval_info_noise = np.random.uniform(low = -1.0, high = 1.0, size = [num_samples, self.info_noise_dim])
+            eval_info_noise_interpolations = np.random.uniform(low = -1.0, high = 1.0, size = [num_interpolation_samples, self.info_noise_dim])
             alpha = np.linspace(0.0,1.0, num_interpolation_samples)
 
             # Generate artificial images for each class
@@ -611,8 +649,9 @@ class acgan_Wgp(object):
 
                 eval_images = sess.run(
                     generated_images, 
-                    feed_dict={input_noise: eval_noise,
-                               input_lbls:  eval_lbls})
+                    feed_dict={input_noise:         eval_noise,
+                               input_lbls:          eval_lbls,
+                               input_info_noise:    eval_info_noise})
 
                 for idx_sample in range(num_samples):
                     utils.save_image_local(
@@ -635,8 +674,9 @@ class acgan_Wgp(object):
 
                     eval_images_interpolation = sess.run(
                         generated_images, 
-                        feed_dict={input_noise: eval_noise_interpolation,
-                                   input_lbls:  eval_lbls})
+                        feed_dict={input_noise:     eval_noise_interpolation,
+                                input_lbls:         eval_lbls,
+                                input_info_noise:   eval_info_noise_interpolations})
                     
                     interpolation_image = eval_images_interpolation[0,:,:]
                     for idx_sample in range(1,num_interpolation_samples):
@@ -683,10 +723,12 @@ class acgan_Wgp(object):
 
         # unstructured_noise = tf.random_normal([self.unstructured_noise_dim])
         unstructured_noise = tf.random_uniform([self.unstructured_noise_dim], minval = -1, maxval = 1)
+
+        info_noise = tf.random_uniform([self.info_noise_dim], minval = -1, maxval = 1)
     
-        return image, lbl, unstructured_noise
+        return image, lbl, unstructured_noise, info_noise
     
-    def _genTestInput(self, lbls_dim, n_samples):
+    def _genTestInput(self):
         """ Defines test code and noise generator. Generates laten codes based
             on a testCategory input.
         Args:
@@ -695,14 +737,16 @@ class acgan_Wgp(object):
         """
 
         # Create repeating noise vector, so a sample for each class is created using the same noise
-        test_unstructured_noise = np.random.uniform(low = -1.0, high = 1, size = [n_samples, self.unstructured_noise_dim])
-        test_unstructured_noise = np.repeat(test_unstructured_noise, lbls_dim, axis = 0)
+        test_unstructured_noise = np.random.uniform(low = -1.0, high = 1, size = [self.n_testsamples *self.n_testsamples, self.unstructured_noise_dim])
         
         # Create one-hot encoded label for each class and tile along axis 0
-        test_labels = np.eye(lbls_dim)
-        test_labels = np.tile(test_labels,(n_samples,1))
+        test_labels = np.eye(self.lbls_dim)
+        test_labels = np.repeat(test_labels,self.n_testsamples*self.n_testsamples,axis = 0)
 
-        return test_unstructured_noise, test_labels
+        test_info = np.linspace(-1, 1, num = self.n_testsamples)
+        test_info = np.array(list(product(test_info,test_info)))
+
+        return test_unstructured_noise, test_labels, test_info
 
     
 
