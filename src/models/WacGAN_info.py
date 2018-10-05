@@ -85,6 +85,21 @@ def hparams_parser_train(hparams_string):
                         default = '10',
                         help = 'Number of iterations between backup of network weights')
 
+    parser.add_argument('--info_noise_dim',
+                        type = int,
+                        default = '2',
+                        help = 'Dimensions of the latent info variables')
+
+    parser.add_argument('--info_scale_d',
+                        type = float,
+                        default = '1',
+                        help = 'Scale significance of discriminator info loss')
+
+    parser.add_argument('--info_scale_g',
+                        type = float,
+                        default = '1',
+                        help = 'Scale significance of generator info loss')
+
     return parser.parse_args(shlex.split(hparams_string))
 
 
@@ -406,7 +421,7 @@ class WacGAN_info(object):
         self.epoch_max = args_train.epoch_max
 
         self.unstructured_noise_dim = args_train.unstructured_noise_dim
-        self.info_noise_dim = 2
+        self.info_noise_dim = args_train.info_noise_dim
         
         self.d_learning_rate = args_train.lr_discriminator
         self.g_learning_rate = args_train.lr_generator
@@ -418,12 +433,20 @@ class WacGAN_info(object):
         self.class_scale_d = args_train.class_scale_d
         self.class_scale_g = args_train.class_scale_g
 
-        self.info_scale_d = 1
-        self.info_scale_g = 1
+        self.info_scale_d = args_train.info_scale_d
+        self.info_scale_g = args_train.info_scale_g
 
         self.backup_frequency = args_train.backup_frequency
 
         utils.save_model_configuration(args_train, self.dir_base)
+
+        # Create folder for saving training results
+        dir_results_train = os.path.join(self.dir_results, 'Training')
+        utils.checkfolder(dir_results_train)
+
+        for class_n in range(self.lbls_dim):
+            dir_result_train_class = dir_results_train + '/class_' + str(class_n).zfill(2)
+            utils.checkfolder(dir_result_train_class)
 
         
         # Use dataset for loading in datasamples from .tfrecord (https://www.tensorflow.org/programmers_guide/datasets#consuming_tfrecord_data)
@@ -479,9 +502,6 @@ class WacGAN_info(object):
         # create constant test variable to inspect changes in the model
         test_noise, test_lbls, test_info = self._genTestInput()
 
-        dir_results_train = os.path.join(self.dir_results, 'Training')
-        utils.checkfolder(dir_results_train)
-
         with tf.Session() as sess:
             # Initialize all model Variables.
             sess.run(tf.global_variables_initializer())
@@ -512,8 +532,8 @@ class WacGAN_info(object):
                                     input_test_lbls:         test_lbls[class_n*(self.n_testsamples*self.n_testsamples):(class_n+1)*(self.n_testsamples*self.n_testsamples),:],
                                     input_test_info_noise:   test_info})
 
-                    writer.add_summary(summaryImg_tb, global_step=-1)
-                    utils.save_image_local(summaryImg, dir_results_train, 'Epoch_' + str(-1))
+                        writer.add_summary(summaryImg_tb, global_step=-1)
+                        utils.save_image_local(summaryImg, dir_results_train + '/class_' + str(class_n).zfill(2), 'Epoch_' + str(-1))
 
                 # Initiate or Re-initiate iterator
                 sess.run(iterator.initializer)
@@ -558,8 +578,8 @@ class WacGAN_info(object):
                                         input_test_lbls:         test_lbls[class_n*(self.n_testsamples*self.n_testsamples):(class_n+1)*(self.n_testsamples*self.n_testsamples),:],
                                         input_test_info_noise:   test_info})
 
-                        writer.add_summary(summaryImg_tb, global_step=epoch_n)
-                        utils.save_image_local(summaryImg, dir_results_train, 'Epoch_' + str(epoch_n))
+                            writer.add_summary(summaryImg_tb, global_step=epoch_n)
+                            utils.save_image_local(summaryImg, dir_results_train + '/class_' + str(class_n).zfill(2), 'Epoch_' + str(epoch_n))
 
                         break
                 
