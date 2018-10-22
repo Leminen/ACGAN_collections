@@ -327,7 +327,7 @@ class WacGAN_info(object):
                               loss_info]
         loss_generator     = [loss_total_generator, 
                               loss_source_generator,
-                              loss_info,
+                              loss_class_generator,
                               loss_info]
 
         return loss_discriminator, loss_generator
@@ -532,8 +532,8 @@ class WacGAN_info(object):
                                     input_test_lbls:         test_lbls[class_n*(self.n_testsamples*self.n_testsamples):(class_n+1)*(self.n_testsamples*self.n_testsamples),:],
                                     input_test_info_noise:   test_info})
 
-                        writer.add_summary(summaryImg_tb, global_step=-1)
-                        utils.save_image_local(summaryImg, dir_results_train + '/class_' + str(class_n).zfill(2), 'Epoch_' + str(-1))
+                    writer.add_summary(summaryImg_tb, global_step=-1)
+                    utils.save_image_local(summaryImg, dir_results_train + '/class_' + str(class_n).zfill(2), 'Epoch_' + str(-1))
 
                 # Initiate or Re-initiate iterator
                 sess.run(iterator.initializer)
@@ -572,13 +572,13 @@ class WacGAN_info(object):
                     except (tf.errors.OutOfRangeError, OutOfRangeError):
                         # Test current model
                         for class_n in range(self.lbls_dim):
-                            summaryImg_tb, summaryImg = sess.run(
+                            _, summaryImg = sess.run(
                                 [summary_op_img, summary_img],
                                 feed_dict={input_test_noise:        test_noise,
                                         input_test_lbls:         test_lbls[class_n*(self.n_testsamples*self.n_testsamples):(class_n+1)*(self.n_testsamples*self.n_testsamples),:],
                                         input_test_info_noise:   test_info})
 
-                            writer.add_summary(summaryImg_tb, global_step=epoch_n)
+                            # writer.add_summary(summaryImg_tb, global_step=epoch_n)
                             utils.save_image_local(summaryImg, dir_results_train + '/class_' + str(class_n).zfill(2), 'Epoch_' + str(epoch_n))
 
                         break
