@@ -93,7 +93,50 @@ def hparams_parser_evaluate(hparams_string):
     parser.add_argument('--epoch_no', 
                         type=int,
                         default=None, 
-                        help='Epoch no to reload')
+                        help='Select which model to reload based on training epoch no')
+    
+    parser.add_argument('--gen_samples',
+                        action='store_true', 
+                        help = 'Generates random samples from each class. [Defaults to False if argument is omitted]')
+    
+    parser.add_argument('--gen_interpolations',
+                        action='store_true', 
+                        help = 'Generate interpolations between random samples. [Defaults to False if argument is omitted]')
+
+    parser.add_argument('--analyze_sample',
+                        action='store_true', 
+                        help = 'Generate interpolations between random samples. [Defaults to False if argument is omitted]')
+    
+    parser.add_argument('--num_samples',
+                        type=int,
+                        default=200,
+                        help='number of random samples to generate')
+    
+    parser.add_argument('--interpolations_num',
+                        type=int,
+                        default=50,
+                        help='number of interpolations to generate')
+
+    parser.add_argument('--interpolations_num_samples',
+                        type=int,
+                        default=11,
+                        help='number of samples in each interpolation')
+
+    parser.add_argument('--analyze_sample_idx',
+                        type=int,
+                        default = 0,
+                        help='sample number to analyze [must be lower than num_samples]')
+
+    parser.add_argument('--analyze_sample_delta',
+                        type=float,
+                        default = 0.1,
+                        help='sample number to analyze [must be lower than num_samples]')
+    
+    parser.add_argument('--analyze_sample_num',
+                        type=int,
+                        default = 15,
+                        help='sample number to analyze [must be lower than num_samples]')
+
 
     return parser.parse_args(shlex.split(hparams_string))
 
@@ -133,6 +176,7 @@ class WacGAN(object):
             raise ValueError('Selected Dataset is not supported by model: '+ self.model)
         
         self.dataset = dataset
+
 
  
     def __generator(self, noise, lbls_onehot, weight_decay = 2.5e-5, is_training = True, reuse=False):
@@ -543,14 +587,21 @@ class WacGAN(object):
     
         Returns:
         """
-        num_samples = 200
-        num_interpolations = 50
-        num_interpolation_samples = 11
 
         args_train = utils.load_model_configuration(self.dir_base)
         args_evaluate = hparams_parser_evaluate(hparams_string)
 
         self.unstructured_noise_dim = args_train.unstructured_noise_dim
+
+        num_samples = args_evaluate.num_samples
+        interpolations_num = args_evaluate.interpolations_num
+        interpolations_num_samples = args_evaluate.interpolations_num_samples
+        analyze_sample_idx = args_evaluate.analyze_sample_idx
+        analyze_sample_delta = args_evaluate.analyse_sample_delta
+        analyze_sample_num = args_evaluate.analyze_sample_num
+
+
+        analyze_sample_num  = args_evaluate.analyze_sample_num
 
         input_lbls = tf.placeholder(
             dtype = tf.float32, 
@@ -565,10 +616,13 @@ class WacGAN(object):
         generated_images = self.__generator(input_noise, input_lbls, is_training=False, reuse=True)
         # interpolation_img = tfgan.eval.image_reshaper(tf.concat(generated_images, 0), num_cols=num_interpolations)
 
+
         ckpt = tf.train.get_checkpoint_state(self.dir_checkpoints)
         
+
         if args_evaluate.epoch_no == None:
             checkpoint_path = ckpt.model_checkpoint_path
+            dir_results_eval = os.path.join(self.dir_results, 'Evaluation')
         else:
             all_checkpoint_paths = ckpt.all_model_checkpoint_paths[:]
             suffix_match = '-'+str(args_evaluate.epoch_no)
@@ -576,9 +630,14 @@ class WacGAN(object):
             
             if ckpt_match:
                 checkpoint_path = ckpt_match[0]
+                dir_results_eval = os.path.join(self.dir_results, 'Evaluation_' + str(args_evaluate.epoch_no))
+                
             else:
                 checkpoint_path = ckpt.model_checkpoint_path
-        
+                dir_results_eval = os.path.join(self.dir_results, 'Evaluation')
+
+        # Generate folders for evaluation samples
+        utils.checkfolder(dir_results_eval)
 
         with tf.Session() as sess:
             # Initialize all model Variables.
@@ -594,62 +653,103 @@ class WacGAN(object):
             # Generate evaluation noise
             np.random.seed(seed = 0)
             eval_noise = np.random.uniform(low = -1.0, high = 1.0, size = [num_samples, self.unstructured_noise_dim])
-            alpha = np.linspace(0.0,1.0, num_interpolation_samples)
 
-            # Generate artificial images for each class
-            for idx_class in range(0,self.lbls_dim):
-                
-                utils.show_message('Generating images for class ' + str(idx_class))
 
-                dir_results_eval = os.path.join(self.dir_results, 'Evaluation', str(idx_class))
-                if args_evaluate.epoch_no != None:
-                    dir_results_eval = os.path.join(self.dir_results, 'Evaluation_' + str(args_evaluate.epoch_no) , str(idx_class))
-                utils.checkfolder(dir_results_eval)
-                
-                eval_lbls = np.zeros(shape = [num_samples, self.lbls_dim])
-                eval_lbls[:,idx_class] = 1
+            ## Generate samples for each class
+            if args_evaluate.gen_samples:
+                for idx_class in range(self.lbls_dim):
+                    utils.show_message('Generating samples for class ' + str(idx_class))
 
-                eval_images = sess.run(
-                    generated_images, 
-                    feed_dict={input_noise: eval_noise,
-                               input_lbls:  eval_lbls})
+                    dir_results_eval_samples = os.path.join(dir_results_eval, 'Samples', str(idx_class))
+                    utils.checkfolder(dir_results_eval_samples)
 
-                for idx_sample in range(num_samples):
-                    utils.save_image_local(
-                        eval_images[idx_sample,:,:,:], 
-                        dir_results_eval,
-                        'Sample_{0}'.format(idx_sample))
-
-                # Create interpolations between pairs of noise vectors
-                np.random.seed(seed = 0)
-                for _ in range(num_interpolations):
-                    
-                    idx_pair = np.random.choice(num_samples,2)
-
-                    noise_vector0 = np.tile(eval_noise[idx_pair[0]],[num_interpolation_samples,1])
-                    noise_vector1 = np.tile(eval_noise[idx_pair[1]],[num_interpolation_samples,1])
-
-                    eval_noise_interpolation = (alpha * noise_vector0.T).T + ((1-alpha) * noise_vector1.T).T
-                    eval_lbls = np.zeros(shape = [num_interpolation_samples, self.lbls_dim])
+                    eval_lbls = np.zeros(shape = [num_samples, self.lbls_dim])
                     eval_lbls[:,idx_class] = 1
 
-                    eval_images_interpolation = sess.run(
+                    eval_images = sess.run(
                         generated_images, 
-                        feed_dict={input_noise: eval_noise_interpolation,
+                        feed_dict={input_noise: eval_noise,
                                    input_lbls:  eval_lbls})
-                    
-                    interpolation_image = eval_images_interpolation[0,:,:]
-                    for idx_sample in range(1,num_interpolation_samples):
-                        interpolation_image = np.hstack(
-                            (interpolation_image, eval_images_interpolation[idx_sample,:,:,:])
-                        )
-                    
-                    utils.save_image_local(
-                        interpolation_image,
-                        dir_results_eval,
-                        'Interpolation_Sample_{0}_{1}'.format(idx_pair[0],idx_pair[1]))
-                    
-    
+
+                    for idx_sample in range(num_samples):
+                        utils.save_image_local(eval_images[idx_sample,:,:,:], dir_results_eval_samples, 'Sample_{0}'.format(idx_sample))
+
+
+            ## Generate interpolations for each class
+            if args_evaluate.gen_interpolations:
+                for idx_class in range(self.lbls_dim):
+                    utils.show_message('Generating samples for class ' + str(idx_class))
+
+                    dir_results_eval_interpolations = os.path.join(dir_results_eval, 'Interpolations', str(idx_class))
+                    utils.checkfolder(dir_results_eval_interpolations)
+
+                    alpha = np.linspace(0.0,1.0, interpolations_num_samples)
+
+                    # Create interpolations between pairs of noise vectors
+                    np.random.seed(seed = 0)
+                    for _ in range(interpolations_num):
+                        idx_pair = np.random.choice(num_samples,2)
+
+                        noise_vector0 = np.tile(eval_noise[idx_pair[0]],[interpolations_num_samples,1])
+                        noise_vector1 = np.tile(eval_noise[idx_pair[1]],[interpolations_num_samples,1])
+
+                        eval_noise_interpolation = (alpha * noise_vector0.T).T + ((1-alpha) * noise_vector1.T).T
+                        eval_lbls = np.zeros(shape = [interpolations_num_samples, self.lbls_dim])
+                        eval_lbls[:,idx_class] = 1
+
+                        eval_images_interpolation = sess.run(
+                            generated_images, 
+                            feed_dict={input_noise: eval_noise_interpolation,
+                                       input_lbls:  eval_lbls})
+                        
+                        interpolation_image = eval_images_interpolation[0,:,:]
+                        for idx_sample in range(interpolations_num_samples):
+                            interpolation_image = np.hstack(
+                                (interpolation_image, eval_images_interpolation[idx_sample,:,:,:]))
+                        
+                        utils.save_image_local(interpolation_image,
+                            dir_results_eval_interpolations,
+                            'Interpolation_Sample_{0}_{1}'.format(idx_pair[0],idx_pair[1]))
+
+
+            ## Generate minor alterations
+            if args_evaluate.analyze_sample:
+                for idx_class in range(self.lbls_dim):
+                    utils.show_message('analyzing sample {0} for class {1}'.format(analyze_sample_idx, str(idx_class)))
+
+                    dir_results_eval_analyze = os.path.join(dir_results_eval, 'Sample_{0}_analysis'.format(analyze_sample_idx), str(idx_class))
+                    utils.checkfolder(dir_results_eval_analyze)
+
+                    alpha = np.linspace(-analyze_sample_delta, analyze_sample_delta, analyze_sample_num)
+
+                    # Create interpolations between pairs of noise vectors
+                    np.random.seed(seed = 0)
+                    for idx_noisedim in range(self.unstructured_noise_dim):
+                        noise_vector = np.tile(eval_noise[analyze_sample_idx],[analyze_sample_num,1])
+                        alteration = np.zeros([analyze_sample_num, self.unstructured_noise_dim])
+                        alteration[:,idx_noisedim] = alpha
+
+                        eval_noise_analyze = noise_vector + alteration
+
+                        eval_lbls = np.zeros(shape = [analyze_sample_num, self.lbls_dim])
+                        eval_lbls[:,idx_class] = 1
+
+                        eval_images_analyze = sess.run(
+                            generated_images, 
+                            feed_dict={input_noise: eval_noise_analyze,
+                                       input_lbls:  eval_lbls})
+                        
+                        image_analyse = eval_images_analyze[0,:,:]
+                        for idx_sample in range(interpolations_num_samples):
+                            image_analyse = np.hstack(
+                                (image_analyse, eval_images_analyze[idx_sample,:,:,:]))
+                        
+                        utils.save_image_local(image_analyse,
+                            dir_results_eval_analyze,
+                            'Analysis_noisedim_{0}'.format(idx_noisedim))
+
+
+                        
     
     def _genLatentCodes(self, image_proto, lbl_proto, class_proto, height_proto, width_proto, channels_proto, origin_proto):
         """ Augment dataset entries. Adds two continuous latent 
