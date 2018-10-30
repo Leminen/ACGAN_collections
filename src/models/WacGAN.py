@@ -671,7 +671,7 @@ class WacGAN(object):
                             feed_dict={input_noise: eval_noise_chunks[idx_chunk],
                                     input_lbls:  eval_lbls})
 
-                        for idx_sample in range(num_samples):
+                        for idx_sample in range(len(eval_noise_chunks[idx_chunk])):
                             utils.save_image_local(eval_images[idx_sample,:,:,:], dir_results_eval_samples, 'Sample_{0}'.format(idx_sample + idx_chunk*chunk_size))
 
 
@@ -695,7 +695,7 @@ class WacGAN(object):
                         if idx_interpolation == 0:
                             utils.checkfolder(dir_results_eval_interpolations)
 
-                        eval_lbls = np.zeros(shape = [interpolations_nsize, self.lbls_dim])
+                        eval_lbls = np.zeros(shape = [interpolations_size, self.lbls_dim])
                         eval_lbls[:,idx_class] = 1
 
                         eval_images = sess.run(
