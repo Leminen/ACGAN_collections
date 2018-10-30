@@ -718,7 +718,7 @@ class WacGAN(object):
             if args_evaluate.analyze_sample:
                 # Seed RNG to reproduce results
                 np.random.seed(seed = 0)
-                eval_noise = np.random.uniform(low = -1.0, high = 1.0, size = [analyze_sample_idx,self.unstructured_noise_dim])
+                eval_noise = np.random.uniform(low = -1.0, high = 1.0, size = [analyze_sample_idx + 1,self.unstructured_noise_dim])
                 eval_noise = eval_noise[analyze_sample_idx]
 
 
