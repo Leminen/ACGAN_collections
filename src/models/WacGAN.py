@@ -597,7 +597,7 @@ class WacGAN(object):
         interpolations_num = args_evaluate.interpolations_num
         interpolations_size = args_evaluate.interpolations_size
         analyze_sample_idx = args_evaluate.analyze_sample_idx
-        analyze_sample_delta = args_evaluate.analyze_sample_delta
+        analyze_delta = args_evaluate.analyze_delta
         analyze_size = args_evaluate.analyze_size
 
         input_lbls = tf.placeholder(
@@ -725,7 +725,7 @@ class WacGAN(object):
                     dir_results_eval_analyze = os.path.join(dir_results_eval, 'Sample_{0}_analysis'.format(analyze_sample_idx), str(idx_class))
                     utils.checkfolder(dir_results_eval_analyze)
 
-                    alpha = np.linspace(-analyze_sample_delta, analyze_sample_delta, analyze_size)
+                    alpha = np.linspace(-analyze_delta, analyze_delta, analyze_size)
 
                     for idx_noisedim in range(self.unstructured_noise_dim):
                         alteration = np.zeros([analyze_size, self.unstructured_noise_dim])
