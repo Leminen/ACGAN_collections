@@ -597,7 +597,7 @@ class WacGAN(object):
         interpolations_num = args_evaluate.interpolations_num
         interpolations_num_samples = args_evaluate.interpolations_num_samples
         analyze_sample_idx = args_evaluate.analyze_sample_idx
-        analyze_sample_delta = args_evaluate.analyse_sample_delta
+        analyze_sample_delta = args_evaluate.analyze_sample_delta
         analyze_sample_num = args_evaluate.analyze_sample_num
 
 
@@ -649,71 +649,79 @@ class WacGAN(object):
             # Reload Tensor values from latest or specified checkpoint
             utils.show_message('Restoring model parameters from: {0}'.format(checkpoint_path))
             saver.restore(sess, checkpoint_path)
-        
-            # Generate evaluation noise
-            np.random.seed(seed = 0)
-            eval_noise = np.random.uniform(low = -1.0, high = 1.0, size = [num_samples, self.unstructured_noise_dim])
-
 
             ## Generate samples for each class
             if args_evaluate.gen_samples:
+                # Seed RNG to reproduce results
+                np.random.seed(seed = 0)
+                eval_noise = np.random.uniform(low = -1.0, high = 1.0, size = [num_samples,self.unstructured_noise_dim])
+
+                chunk_size = 200
+                eval_noise_chunks = [eval_noise[i:i + chunk_size] for i in range(0, len(eval_noise), chunk_size)]
+
                 for idx_class in range(self.lbls_dim):
                     utils.show_message('Generating samples for class ' + str(idx_class))
 
                     dir_results_eval_samples = os.path.join(dir_results_eval, 'Samples', str(idx_class))
                     utils.checkfolder(dir_results_eval_samples)
 
-                    eval_lbls = np.zeros(shape = [num_samples, self.lbls_dim])
-                    eval_lbls[:,idx_class] = 1
+                    for idx_chunk in range(len(eval_noise_chunks)):
+                        eval_lbls = np.zeros(shape = [len(eval_noise_chunks[idx_chunk]), self.lbls_dim])
+                        eval_lbls[:,idx_class] = 1
 
-                    eval_images = sess.run(
-                        generated_images, 
-                        feed_dict={input_noise: eval_noise,
-                                   input_lbls:  eval_lbls})
+                        eval_images = sess.run(
+                            generated_images, 
+                            feed_dict={input_noise: eval_noise_chunks[idx_chunk],
+                                    input_lbls:  eval_lbls})
 
-                    for idx_sample in range(num_samples):
-                        utils.save_image_local(eval_images[idx_sample,:,:,:], dir_results_eval_samples, 'Sample_{0}'.format(idx_sample))
+                        for idx_sample in range(num_samples):
+                            utils.save_image_local(eval_images[idx_sample,:,:,:], dir_results_eval_samples, 'Sample_{0}'.format(idx_sample + idx_chunk*chunk_size))
 
 
             ## Generate interpolations for each class
             if args_evaluate.gen_interpolations:
-                for idx_class in range(self.lbls_dim):
-                    utils.show_message('Generating samples for class ' + str(idx_class))
+                # Seed RNG to reproduce results
+                np.random.seed(seed = 0)
+                interp = np.linspace(0.0,1.0, interpolations_num_samples)
 
-                    dir_results_eval_interpolations = os.path.join(dir_results_eval, 'Interpolations', str(idx_class))
-                    utils.checkfolder(dir_results_eval_interpolations)
+                for idx_interpolation in range(interpolations_num):
+                    utils.show_message('Generating random interpolation idx:  ' + str(idx_interpolation))
 
-                    alpha = np.linspace(0.0,1.0, interpolations_num_samples)
+                    # Create interpolation between two random noise vectors
+                    eval_noise = np.random.uniform(low = -1.0, high = 1.0, size = [2,self.unstructured_noise_dim])
+                    eval_noise = np.outer(interp, eval_noise[1]) + np.outer((1-interp), eval_noise[0])
 
-                    # Create interpolations between pairs of noise vectors
-                    np.random.seed(seed = 0)
-                    for _ in range(interpolations_num):
-                        idx_pair = np.random.choice(num_samples,2)
+                    # Generate interpolation images for each class
+                    for idx_class in range(self.lbls_dim):
+                        
+                        dir_results_eval_interpolations = os.path.join(dir_results_eval, 'Interpolations', str(idx_class))
+                        if idx_interpolation == 0:
+                            utils.checkfolder(dir_results_eval_interpolations)
 
-                        noise_vector0 = np.tile(eval_noise[idx_pair[0]],[interpolations_num_samples,1])
-                        noise_vector1 = np.tile(eval_noise[idx_pair[1]],[interpolations_num_samples,1])
-
-                        eval_noise_interpolation = (alpha * noise_vector0.T).T + ((1-alpha) * noise_vector1.T).T
                         eval_lbls = np.zeros(shape = [interpolations_num_samples, self.lbls_dim])
                         eval_lbls[:,idx_class] = 1
 
-                        eval_images_interpolation = sess.run(
+                        eval_images = sess.run(
                             generated_images, 
-                            feed_dict={input_noise: eval_noise_interpolation,
+                            feed_dict={input_noise: eval_noise,
                                        input_lbls:  eval_lbls})
-                        
-                        interpolation_image = eval_images_interpolation[0,:,:]
+
+                        interpolation_image = eval_images[0,:,:]
                         for idx_sample in range(interpolations_num_samples):
-                            interpolation_image = np.hstack(
-                                (interpolation_image, eval_images_interpolation[idx_sample,:,:,:]))
+                            utils.save_image_local(eval_images[idx_sample,:,:,:], dir_results_eval_interpolations, 'Interpolation_{0}_{1}'.format(idx_interpolation,idx_sample))
+                            interpolation_image = np.hstack((interpolation_image, eval_images[idx_sample,:,:,:]))
                         
-                        utils.save_image_local(interpolation_image,
-                            dir_results_eval_interpolations,
-                            'Interpolation_Sample_{0}_{1}'.format(idx_pair[0],idx_pair[1]))
+                        utils.save_image_local(interpolation_image, dir_results_eval_interpolations, 'Interpolation_{0}'.format(idx_interpolation))
 
 
             ## Generate minor alterations
             if args_evaluate.analyze_sample:
+                # Seed RNG to reproduce results
+                np.random.seed(seed = 0)
+                eval_noise = np.random.uniform(low = -1.0, high = 1.0, size = [analyze_sample_idx,self.unstructured_noise_dim])
+                eval_noise = eval_noise[analyze_sample_idx]
+
+
                 for idx_class in range(self.lbls_dim):
                     utils.show_message('analyzing sample {0} for class {1}'.format(analyze_sample_idx, str(idx_class)))
 
@@ -722,31 +730,26 @@ class WacGAN(object):
 
                     alpha = np.linspace(-analyze_sample_delta, analyze_sample_delta, analyze_sample_num)
 
-                    # Create interpolations between pairs of noise vectors
-                    np.random.seed(seed = 0)
                     for idx_noisedim in range(self.unstructured_noise_dim):
-                        noise_vector = np.tile(eval_noise[analyze_sample_idx],[analyze_sample_num,1])
                         alteration = np.zeros([analyze_sample_num, self.unstructured_noise_dim])
                         alteration[:,idx_noisedim] = alpha
 
-                        eval_noise_analyze = noise_vector + alteration
+                        eval_noise_analyze = eval_noise + alteration
 
                         eval_lbls = np.zeros(shape = [analyze_sample_num, self.lbls_dim])
                         eval_lbls[:,idx_class] = 1
 
-                        eval_images_analyze = sess.run(
+                        eval_images = sess.run(
                             generated_images, 
                             feed_dict={input_noise: eval_noise_analyze,
                                        input_lbls:  eval_lbls})
                         
-                        image_analyse = eval_images_analyze[0,:,:]
+                        image_analyse = eval_images[0,:,:]
                         for idx_sample in range(interpolations_num_samples):
-                            image_analyse = np.hstack(
-                                (image_analyse, eval_images_analyze[idx_sample,:,:,:]))
+                            utils.save_image_local(eval_images[idx_sample,:,:,:], dir_results_eval_analyze, 'Analysis_NoiseDim_{0}_{1}'.format(idx_noisedim,idx_sample))
+                            image_analyse = np.hstack((image_analyse, eval_images[idx_sample,:,:,:]))
                         
-                        utils.save_image_local(image_analyse,
-                            dir_results_eval_analyze,
-                            'Analysis_noisedim_{0}'.format(idx_noisedim))
+                        utils.save_image_local(image_analyse, dir_results_eval_analyze, 'Analysis_noisedim_{0}'.format(idx_noisedim))
 
 
                         
