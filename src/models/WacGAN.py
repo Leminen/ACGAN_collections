@@ -117,7 +117,7 @@ def hparams_parser_evaluate(hparams_string):
                         default=50,
                         help='number of interpolations to generate')
 
-    parser.add_argument('--interpolations_num_samples',
+    parser.add_argument('--interpolations_size',
                         type=int,
                         default=11,
                         help='number of samples in each interpolation')
@@ -125,17 +125,17 @@ def hparams_parser_evaluate(hparams_string):
     parser.add_argument('--analyze_sample_idx',
                         type=int,
                         default = 0,
-                        help='sample number to analyze [must be lower than num_samples]')
+                        help='sample number to analyze')
 
-    parser.add_argument('--analyze_sample_delta',
+    parser.add_argument('--analyze_delta',
                         type=float,
                         default = 0.1,
-                        help='sample number to analyze [must be lower than num_samples]')
+                        help='Range determing the alteration in each noise dimension')
     
-    parser.add_argument('--analyze_sample_num',
+    parser.add_argument('--analyze_size',
                         type=int,
                         default = 15,
-                        help='sample number to analyze [must be lower than num_samples]')
+                        help='number of samples in each analysis')
 
 
     return parser.parse_args(shlex.split(hparams_string))
@@ -595,13 +595,10 @@ class WacGAN(object):
 
         num_samples = args_evaluate.num_samples
         interpolations_num = args_evaluate.interpolations_num
-        interpolations_num_samples = args_evaluate.interpolations_num_samples
+        interpolations_size = args_evaluate.interpolations_size
         analyze_sample_idx = args_evaluate.analyze_sample_idx
         analyze_sample_delta = args_evaluate.analyze_sample_delta
-        analyze_sample_num = args_evaluate.analyze_sample_num
-
-
-        analyze_sample_num  = args_evaluate.analyze_sample_num
+        analyze_size = args_evaluate.analyze_size
 
         input_lbls = tf.placeholder(
             dtype = tf.float32, 
@@ -682,7 +679,7 @@ class WacGAN(object):
             if args_evaluate.gen_interpolations:
                 # Seed RNG to reproduce results
                 np.random.seed(seed = 0)
-                interp = np.linspace(0.0,1.0, interpolations_num_samples)
+                interp = np.linspace(0.0,1.0, interpolations_size)
 
                 for idx_interpolation in range(interpolations_num):
                     utils.show_message('Generating random interpolation idx:  ' + str(idx_interpolation))
@@ -698,7 +695,7 @@ class WacGAN(object):
                         if idx_interpolation == 0:
                             utils.checkfolder(dir_results_eval_interpolations)
 
-                        eval_lbls = np.zeros(shape = [interpolations_num_samples, self.lbls_dim])
+                        eval_lbls = np.zeros(shape = [interpolations_nsize, self.lbls_dim])
                         eval_lbls[:,idx_class] = 1
 
                         eval_images = sess.run(
@@ -707,7 +704,7 @@ class WacGAN(object):
                                        input_lbls:  eval_lbls})
 
                         interpolation_image = eval_images[0,:,:]
-                        for idx_sample in range(interpolations_num_samples):
+                        for idx_sample in range(interpolations_size):
                             utils.save_image_local(eval_images[idx_sample,:,:,:], dir_results_eval_interpolations, 'Interpolation_{0}_{1}'.format(idx_interpolation,idx_sample))
                             interpolation_image = np.hstack((interpolation_image, eval_images[idx_sample,:,:,:]))
                         
@@ -728,15 +725,15 @@ class WacGAN(object):
                     dir_results_eval_analyze = os.path.join(dir_results_eval, 'Sample_{0}_analysis'.format(analyze_sample_idx), str(idx_class))
                     utils.checkfolder(dir_results_eval_analyze)
 
-                    alpha = np.linspace(-analyze_sample_delta, analyze_sample_delta, analyze_sample_num)
+                    alpha = np.linspace(-analyze_sample_delta, analyze_sample_delta, analyze_size)
 
                     for idx_noisedim in range(self.unstructured_noise_dim):
-                        alteration = np.zeros([analyze_sample_num, self.unstructured_noise_dim])
+                        alteration = np.zeros([analyze_size, self.unstructured_noise_dim])
                         alteration[:,idx_noisedim] = alpha
 
                         eval_noise_analyze = eval_noise + alteration
 
-                        eval_lbls = np.zeros(shape = [analyze_sample_num, self.lbls_dim])
+                        eval_lbls = np.zeros(shape = [analyze_size, self.lbls_dim])
                         eval_lbls[:,idx_class] = 1
 
                         eval_images = sess.run(
@@ -745,7 +742,7 @@ class WacGAN(object):
                                        input_lbls:  eval_lbls})
                         
                         image_analyse = eval_images[0,:,:]
-                        for idx_sample in range(interpolations_num_samples):
+                        for idx_sample in range(analyze_size):
                             utils.save_image_local(eval_images[idx_sample,:,:,:], dir_results_eval_analyze, 'Analysis_NoiseDim_{0}_{1}'.format(idx_noisedim,idx_sample))
                             image_analyse = np.hstack((image_analyse, eval_images[idx_sample,:,:,:]))
                         
