@@ -692,8 +692,10 @@ class WacGAN(object):
                     for idx_class in range(self.lbls_dim):
                         
                         dir_results_eval_interpolations = os.path.join(dir_results_eval, 'Interpolations', str(idx_class))
+                        dir_results_eval_interpolations_subcomponents = os.path.join(dir_results_eval_interpolations, 'subcomponents')
                         if idx_interpolation == 0:
                             utils.checkfolder(dir_results_eval_interpolations)
+                            utils.checkfolder(dir_results_eval_interpolations_subcomponents)
 
                         eval_lbls = np.zeros(shape = [interpolations_size, self.lbls_dim])
                         eval_lbls[:,idx_class] = 1
@@ -705,7 +707,7 @@ class WacGAN(object):
 
                         interpolation_image = eval_images[0,:,:]
                         for idx_sample in range(interpolations_size):
-                            utils.save_image_local(eval_images[idx_sample,:,:,:], dir_results_eval_interpolations, 'Interpolation_{0}_{1}'.format(idx_interpolation,idx_sample))
+                            utils.save_image_local(eval_images[idx_sample,:,:,:], dir_results_eval_interpolations_subcomponents, 'Interpolation_{0}_{1}'.format(idx_interpolation,idx_sample))
                             if idx_sample != 0:
                                 interpolation_image = np.hstack((interpolation_image, eval_images[idx_sample,:,:,:]))
                         
@@ -724,7 +726,9 @@ class WacGAN(object):
                     utils.show_message('analyzing sample {0} for class {1}'.format(analyze_sample_idx, str(idx_class)))
 
                     dir_results_eval_analyze = os.path.join(dir_results_eval, 'Sample_{0}_analysis'.format(analyze_sample_idx), str(idx_class))
+                    dir_results_eval_analyze_subcompnents = os.path.join(dir_results_eval_analyze,'subcomponents')
                     utils.checkfolder(dir_results_eval_analyze)
+                    utils.checkfolder(dir_results_eval_analyze_subcompnents)
 
                     alpha = np.linspace(-analyze_delta, analyze_delta, analyze_size)
 
@@ -744,8 +748,9 @@ class WacGAN(object):
                         
                         image_analyse = eval_images[0,:,:]
                         for idx_sample in range(analyze_size):
-                            utils.save_image_local(eval_images[idx_sample,:,:,:], dir_results_eval_analyze, 'Analysis_NoiseDim_{0}_{1}'.format(idx_noisedim,idx_sample))
-                            image_analyse = np.hstack((image_analyse, eval_images[idx_sample,:,:,:]))
+                            utils.save_image_local(eval_images[idx_sample,:,:,:], dir_results_eval_analyze_subcompnents, 'Analysis_NoiseDim_{0}_{1}'.format(idx_noisedim,idx_sample))
+                            if idx_sample != 0:
+                                image_analyse = np.hstack((image_analyse, eval_images[idx_sample,:,:,:]))
                         
                         utils.save_image_local(image_analyse, dir_results_eval_analyze, 'Analysis_noisedim_{0}'.format(idx_noisedim))
 
