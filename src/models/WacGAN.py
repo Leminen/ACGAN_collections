@@ -706,7 +706,8 @@ class WacGAN(object):
                         interpolation_image = eval_images[0,:,:]
                         for idx_sample in range(interpolations_size):
                             utils.save_image_local(eval_images[idx_sample,:,:,:], dir_results_eval_interpolations, 'Interpolation_{0}_{1}'.format(idx_interpolation,idx_sample))
-                            interpolation_image = np.hstack((interpolation_image, eval_images[idx_sample,:,:,:]))
+                            if idx_sample != 0:
+                                interpolation_image = np.hstack((interpolation_image, eval_images[idx_sample,:,:,:]))
                         
                         utils.save_image_local(interpolation_image, dir_results_eval_interpolations, 'Interpolation_{0}'.format(idx_interpolation))
 
