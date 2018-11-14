@@ -15,7 +15,7 @@ import datetime
 import scipy
 import argparse
 import shlex
-from itertools import product
+import itertools
 
 import src.data.datasets.psd as psd_dataset
 import src.utils as utils
@@ -85,7 +85,7 @@ def hparams_parser_train(hparams_string):
                         default = '10',
                         help = 'Number of iterations between backup of network weights')
 
-    parser.add_argument('--info_noise_dim',
+    parser.add_argument('--info_var_dim',
                         type = int,
                         default = '2',
                         help = 'Dimensions of the latent info variables')
@@ -238,7 +238,7 @@ class WacGAN_info(object):
 
                 logits_source = layers.fully_connected(net, 1, normalizer_fn = None, activation_fn = None)
                 logits_class = layers.fully_connected(net, self.lbls_dim, normalizer_fn = None, activation_fn = None)
-                logits_info = layers.fully_connected(net, self.info_noise_dim, normalizer_fn = None, activation_fn = None)
+                logits_info = layers.fully_connected(net, self.info_var_dim, normalizer_fn = None, activation_fn = None)
 
                 return logits_source, logits_class, logits_info
     
@@ -421,13 +421,12 @@ class WacGAN_info(object):
         self.epoch_max = args_train.epoch_max
 
         self.unstructured_noise_dim = args_train.unstructured_noise_dim
-        self.info_noise_dim = args_train.info_noise_dim
+        self.info_var_dim = args_train.info_var_dim
+        self.n_testsamples = args_train.n_testsamples
         
         self.d_learning_rate = args_train.lr_discriminator
         self.g_learning_rate = args_train.lr_generator
-
         self.d_iter = args_train.d_iter
-        self.n_testsamples = args_train.n_testsamples
 
         self.gp_lambda = args_train.gp_lambda
         self.class_scale_d = args_train.class_scale_d
@@ -445,7 +444,7 @@ class WacGAN_info(object):
         utils.checkfolder(dir_results_train)
 
         for class_n in range(self.lbls_dim):
-            dir_result_train_class = dir_results_train + '/class_' + str(class_n).zfill(2)
+            dir_result_train_class = dir_results_train + '/' + str(class_n).zfill(2)
             utils.checkfolder(dir_result_train_class)
 
         
@@ -474,19 +473,19 @@ class WacGAN_info(object):
             name = 'input_unstructured_noise')
         input_info_noise = tf.placeholder(
             dtype = tf.float32, 
-            shape = [None, self.info_noise_dim], 
+            shape = [None, self.info_var_dim], 
             name = 'input_info_noise')
         input_test_lbls = tf.placeholder(
             dtype = tf.float32, 
-            shape = [self.n_testsamples * self.n_testsamples, self.lbls_dim], 
+            shape = [None, self.lbls_dim], 
             name = 'input_test_lbls')
         input_test_noise = tf.placeholder(
             dtype = tf.float32, 
-            shape = [self.n_testsamples * self.n_testsamples, self.unstructured_noise_dim], 
+            shape = [None, self.unstructured_noise_dim], 
             name = 'input_test_noise')
         input_test_info_noise = tf.placeholder(
             dtype = tf.float32, 
-            shape = [self.n_testsamples * self.n_testsamples, self.info_noise_dim], 
+            shape = [None, self.info_var_dim], 
             name = 'input_test_info_noise')
 
         
@@ -500,7 +499,10 @@ class WacGAN_info(object):
         utils.show_all_variables()
 
         # create constant test variable to inspect changes in the model
-        test_noise, test_lbls, test_info = self._genTestInput()
+        self.combinations_info_var = itertools.combinations(range(self.info_var_dim),2)
+        self.combinations_info_var = list(self.combinations_info_var)
+
+        test_noise, test_info = self._genTestInput()
 
         with tf.Session() as sess:
             # Initialize all model Variables.
@@ -526,14 +528,26 @@ class WacGAN_info(object):
                 # Test model output before any training
                 if epoch_n == 0:
                     for class_n in range(self.lbls_dim):
-                        summaryImg_tb, summaryImg = sess.run(
-                            [summary_op_img, summary_img],
-                            feed_dict={input_test_noise:        test_noise,
-                                    input_test_lbls:         test_lbls[class_n*(self.n_testsamples*self.n_testsamples):(class_n+1)*(self.n_testsamples*self.n_testsamples),:],
-                                    input_test_info_noise:   test_info})
+                        test_lbls = np.zeros([self.n_testsamples**2,self.lbls_dim])
+                        test_lbls[:,class_n] = 1
 
-                    writer.add_summary(summaryImg_tb, global_step=-1)
-                    utils.save_image_local(summaryImg, dir_results_train + '/class_' + str(class_n).zfill(2), 'Epoch_' + str(-1))
+                        for i in range(len(test_info)):
+                            test_info_combi = test_info[i]
+
+                            _ , summaryImg = sess.run(
+                                [summary_op_img, summary_img],
+                                feed_dict={input_test_noise:     test_noise,
+                                        input_test_lbls:         test_lbls,
+                                        input_test_info_noise:   test_info_combi})
+                            
+                            dir_result_train_class = dir_results_train + '/' + str(class_n).zfill(2)
+                            if self.info_var_dim < 2:
+                                filename_temp = 'Epoch_{0}_LatentVar_1'.format(epoch_n)
+                            else:
+                                filename_temp = 'Epoch_{0}_LatentCombi_{1}_{2}'.format(epoch_n,self.combinations_info_var[i][0],self.combinations_info_var[i][1])
+
+                            # writer.add_summary(summaryImg_tb, global_step=epoch_n)
+                            utils.save_image_local(summaryImg, dir_result_train_class,filename_temp)
 
                 # Initiate or Re-initiate iterator
                 sess.run(iterator.initializer)
@@ -572,14 +586,26 @@ class WacGAN_info(object):
                     except (tf.errors.OutOfRangeError, OutOfRangeError):
                         # Test current model
                         for class_n in range(self.lbls_dim):
-                            _, summaryImg = sess.run(
-                                [summary_op_img, summary_img],
-                                feed_dict={input_test_noise:        test_noise,
-                                        input_test_lbls:         test_lbls[class_n*(self.n_testsamples*self.n_testsamples):(class_n+1)*(self.n_testsamples*self.n_testsamples),:],
-                                        input_test_info_noise:   test_info})
+                            test_lbls = np.zeros([self.n_testsamples**2,self.lbls_dim])
+                            test_lbls[:,class_n] = 1
 
-                            # writer.add_summary(summaryImg_tb, global_step=epoch_n)
-                            utils.save_image_local(summaryImg, dir_results_train + '/class_' + str(class_n).zfill(2), 'Epoch_' + str(epoch_n))
+                            for i in range(len(test_info)):
+                                test_info_combi = test_info[i]
+
+                                _, summaryImg = sess.run(
+                                    [summary_op_img, summary_img],
+                                    feed_dict={input_test_noise:     test_noise,
+                                            input_test_lbls:         test_lbls,
+                                            input_test_info_noise:   test_info_combi})
+                                
+                                dir_result_train_class = dir_results_train + '/' + str(class_n).zfill(2)
+                                if self.info_var_dim < 2:
+                                    filename_temp = 'Epoch_{0}_LatentVar_1'.format(epoch_n)
+                                else:
+                                    filename_temp = 'Epoch_{0}_LatentCombi_{1}_{2}'.format(epoch_n,self.combinations_info_var[i][0],self.combinations_info_var[i][1])
+
+                                # writer.add_summary(summaryImg_tb, global_step=epoch_n)
+                                utils.save_image_local(summaryImg, dir_result_train_class,filename_temp)
 
                         break
                 
@@ -602,7 +628,7 @@ class WacGAN_info(object):
         args_evaluate = hparams_parser_evaluate(hparams_string)
 
         self.unstructured_noise_dim = args_train.unstructured_noise_dim
-        self.info_noise_dim = 2
+        self.info_var_dim = 2
 
         input_lbls = tf.placeholder(
             dtype = tf.float32, 
@@ -614,7 +640,7 @@ class WacGAN_info(object):
             name = 'input_test_noise')
         input_info_noise = tf.placeholder(
             dtype = tf.float32, 
-            shape = [None, self.info_noise_dim], 
+            shape = [None, self.info_var_dim], 
             name = 'input_test_noise')
 
         _  = self.__generator(input_noise, input_lbls, input_info_noise)
@@ -650,8 +676,8 @@ class WacGAN_info(object):
             # Generate evaluation noise
             np.random.seed(seed = 0)
             eval_noise = np.random.uniform(low = -1.0, high = 1.0, size = [num_samples, self.unstructured_noise_dim])
-            eval_info_noise = np.random.uniform(low = -1.0, high = 1.0, size = [num_samples, self.info_noise_dim])
-            eval_info_noise_interpolations = np.random.uniform(low = -1.0, high = 1.0, size = [num_interpolation_samples, self.info_noise_dim])
+            eval_info_noise = np.random.uniform(low = -1.0, high = 1.0, size = [num_samples, self.info_var_dim])
+            eval_info_noise_interpolations = np.random.uniform(low = -1.0, high = 1.0, size = [num_interpolation_samples, self.info_var_dim])
             alpha = np.linspace(0.0,1.0, num_interpolation_samples)
 
             # Generate artificial images for each class
@@ -744,7 +770,7 @@ class WacGAN_info(object):
         # unstructured_noise = tf.random_normal([self.unstructured_noise_dim])
         unstructured_noise = tf.random_uniform([self.unstructured_noise_dim], minval = -1, maxval = 1)
 
-        info_noise = tf.random_uniform([self.info_noise_dim], minval = -1, maxval = 1)
+        info_noise = tf.random_uniform([self.info_var_dim], minval = -1, maxval = 1)
     
         return image, lbl, unstructured_noise, info_noise
     
@@ -756,17 +782,48 @@ class WacGAN_info(object):
         Returns:
         """
 
-        # Create repeating noise vector, so a sample for each class is created using the same noise
-        test_unstructured_noise = np.random.uniform(low = -1.0, high = 1, size = [self.n_testsamples *self.n_testsamples, self.unstructured_noise_dim])
+        test_info = []
+
+        if self.info_var_dim < 2:
+            test_unstructured_noise = np.random.uniform(low = -1.0, high = 1.0, size = [self.n_testsamples, self.unstructured_noise_dim])
+            test_info_temp = np.linspace(-1,1,self.n_testsamples)
+            test_info.append(test_info_temp)
+
+        else:
+            test_unstructured_noise = np.random.uniform(low = -1.0, high = 1.0, size = [self.n_testsamples**2, self.unstructured_noise_dim])
+
+            for combi in self.combinations_info_var:
+                test_info_temp = np.zeros(shape = [self.n_testsamples**2,self.info_var_dim])
+                test_info_temp[:,combi[0]] = np.repeat(np.linspace(-1,1,self.n_testsamples),self.n_testsamples)
+                test_info_temp[:,combi[1]] = np.tile(np.linspace(-1,1,self.n_testsamples),self.n_testsamples)
+
+                test_info.append(test_info_temp)
+
+        return test_unstructured_noise, test_info
+
+        # dim_latentVars = dim_latentVars
+        # n_combinations = (dim_latentVars-1)*(dim_latentVars)/2
+
+        # if n_combinations == 0:
+        #     n_testsamples = n_testsamples
+        # else:
+        #     n_testsamples = n_testsamples^2 * n_combinations
+
+        # test_unstructured_noise = np.random.uniform(low = -1.0, high = 1.0, size = [n_testsamples, self.unstructured_noise_dim])
+
+        # test_info = np.zeros(shape = [n_testsamples,dim_latentVars])
+
+        # # Create repeating noise vector, so a sample for each class is created using the same noise
+        # test_unstructured_noise = np.random.uniform(low = -1.0, high = 1, size = [self.n_testsamples *self.n_testsamples, self.unstructured_noise_dim])
         
-        # Create one-hot encoded label for each class and tile along axis 0
-        test_labels = np.eye(self.lbls_dim)
-        test_labels = np.repeat(test_labels,self.n_testsamples*self.n_testsamples,axis = 0)
+        # # Create one-hot encoded label for each class and tile along axis 0
+        # test_labels = np.eye(self.lbls_dim)
+        # test_labels = np.repeat(test_labels,self.n_testsamples*self.n_testsamples,axis = 0)
 
-        test_info = np.linspace(-1, 1, num = self.n_testsamples)
-        test_info = np.array(list(product(test_info,test_info)))
+        # test_info = np.linspace(-1, 1, num = self.n_testsamples)
+        # test_info = np.array(list(product(test_info,test_info)))
 
-        return test_unstructured_noise, test_labels, test_info
+        # return test_unstructured_noise, test_labels, test_info
 
     
 
