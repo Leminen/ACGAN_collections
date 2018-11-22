@@ -477,15 +477,15 @@ class WacGAN_info(object):
             name = 'input_info_noise')
         input_test_lbls = tf.placeholder(
             dtype = tf.float32, 
-            shape = [np.minimum(2*self.n_testsamples, self.info_var_dim*self.n_testsamples), self.lbls_dim], 
+            shape = [self.n_testsamples**np.minimum(2, self.info_var_dim), self.lbls_dim], 
             name = 'input_test_lbls')
         input_test_noise = tf.placeholder(
             dtype = tf.float32, 
-            shape = [np.minimum(2*self.n_testsamples, self.info_var_dim*self.n_testsamples), self.unstructured_noise_dim], 
+            shape = [self.n_testsamples**np.minimum(2, self.info_var_dim)), self.unstructured_noise_dim], 
             name = 'input_test_noise')
         input_test_info_noise = tf.placeholder(
             dtype = tf.float32, 
-            shape = [np.minimum(2*self.n_testsamples, self.info_var_dim*self.n_testsamples), self.info_var_dim], 
+            shape = [self.n_testsamples**np.minimum(2, self.info_var_dim)), self.info_var_dim], 
             name = 'input_test_info_noise')
 
         
@@ -528,7 +528,7 @@ class WacGAN_info(object):
                 # Test model output before any training
                 if epoch_n == 0:
                     for class_n in range(self.lbls_dim):
-                        test_lbls = np.zeros([np.minimum(2*self.n_testsamples, self.info_var_dim*self.n_testsamples),self.lbls_dim])
+                        test_lbls = np.zeros([self.n_testsamples**np.minimum(2, self.info_var_dim),self.lbls_dim])
                         test_lbls[:,class_n] = 1
 
                         for i in range(len(test_info)):
@@ -586,7 +586,7 @@ class WacGAN_info(object):
                     except (tf.errors.OutOfRangeError, OutOfRangeError):
                         # Test current model
                         for class_n in range(self.lbls_dim):
-                            test_lbls = np.zeros([self.n_testsamples**2,self.lbls_dim])
+                            test_lbls = np.zeros([self.n_testsamples**np.minimum(2, self.info_var_dim),self.lbls_dim])
                             test_lbls[:,class_n] = 1
 
                             for i in range(len(test_info)):
