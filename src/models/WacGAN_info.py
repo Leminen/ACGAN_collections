@@ -481,11 +481,11 @@ class WacGAN_info(object):
             name = 'input_test_lbls')
         input_test_noise = tf.placeholder(
             dtype = tf.float32, 
-            shape = [self.n_testsamples**np.minimum(2, self.info_var_dim)), self.unstructured_noise_dim], 
+            shape = [self.n_testsamples**np.minimum(2, self.info_var_dim), self.unstructured_noise_dim], 
             name = 'input_test_noise')
         input_test_info_noise = tf.placeholder(
             dtype = tf.float32, 
-            shape = [self.n_testsamples**np.minimum(2, self.info_var_dim)), self.info_var_dim], 
+            shape = [self.n_testsamples**np.minimum(2, self.info_var_dim), self.info_var_dim], 
             name = 'input_test_info_noise')
 
         
