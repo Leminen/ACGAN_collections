@@ -177,7 +177,7 @@ def _get_output_filename(dataset_dir, shard_id):
     Returns:
       An absolute file path.
     """
-    return '%s/PSD-data_%03d-of-%03d.tfrecord' % (dataset_dir, shard_id+1, _NUM_SHARDS)
+    return '%s/data_shard_%03d-of-%03d.tfrecord' % (dataset_dir, shard_id+1, _NUM_SHARDS)
 
 
 def download(dataset_part):
