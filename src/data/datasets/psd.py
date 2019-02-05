@@ -37,7 +37,13 @@ _DIR_PROCESSED_SEGMENTED = 'data/processed/PSD_Segmented/'
 _EXCLUDED_GRASSES = True
 _EXCLUDE_LARGE_IMAGES = True
 _LARGE_IMAGE_DIM = 400
+_NUM_SHARDS = 10
 
+
+
+
+def chunkify(lst,n):
+    return [lst[i::n] for i in iter(range(n))]
 
 class ImageReader(object):
     """Helper class that provides TensorFlow image coding utilities."""
@@ -83,7 +89,7 @@ def _get_filenames_and_classes(dataset_dir, setname, exclude_list):
       A list of image file paths, relative to `dataset_dir` and the list of
       subdirectories, representing class names.
     """
-    
+    np.random.seed(0)
     data_root = os.path.join(dataset_dir, *setname)
 
     directories = []
@@ -96,14 +102,26 @@ def _get_filenames_and_classes(dataset_dir, setname, exclude_list):
                 class_names.append(filename)
 
     photo_filenames = []
+    photo_filenames2 = []
+    for _ in range(_NUM_SHARDS):
+        photo_filenames2.append([])
+
     for directory in directories:
         if not any(x in directory for x in exclude_list):
-            for filename in os.listdir(directory):
+            filenames = os.listdir(directory)
+            paths = [os.path.join(directory, filename) for filename in filenames]
+            paths = np.random.permutation(paths)
+            paths_split = chunkify(paths,_NUM_SHARDS)
+
+            for shard_n in range(_NUM_SHARDS):
+                photo_filenames2[shard_n].extend(paths_split[shard_n])
+
+            for filename in filenames:
                 path = os.path.join(directory, filename)
                 photo_filenames.append(path)
                 
 
-    return photo_filenames, sorted(class_names)
+    return photo_filenames2, sorted(class_names)
 
 
 def _convert_to_tfrecord(filenames, class_dict, tfrecord_writer):
@@ -149,7 +167,7 @@ def _convert_to_tfrecord(filenames, class_dict, tfrecord_writer):
                 tfrecord_writer.write(example.SerializeToString())
         
 
-def _get_output_filename(dataset_dir, split_name):
+def _get_output_filename(dataset_dir, shard_id):
     """Creates the output filename.
 
     Args:
@@ -159,7 +177,7 @@ def _get_output_filename(dataset_dir, split_name):
     Returns:
       An absolute file path.
     """
-    return '%s/%s.tfrecord' % (dataset_dir, split_name)
+    return '%s/PSD-data_%03d-of-%03d.tfrecord' % (dataset_dir, shard_id+1, _NUM_SHARDS)
 
 
 def download(dataset_part):
@@ -198,18 +216,18 @@ def process(dataset_part):
         _dir_raw = _DIR_RAW_NONSEGMENTED
         _dir_processed = _DIR_PROCESSED_NONSEGMENTED
         setname = 'Nonsegmented'
-        training_filename = _get_output_filename(_DIR_PROCESSED_NONSEGMENTED, 'train')
+        #training_filename = _get_output_filename(_DIR_PROCESSED_NONSEGMENTED, 'train')
         # testing_filename = _get_output_filename(_DIR_PROCESSED_NONSEGMENTED, 'test')
     else:
         _dir_raw = _DIR_RAW_SEGMENTED
         _dir_processed = _DIR_PROCESSED_SEGMENTED
         setname = 'Segmented' 
-        training_filename = _get_output_filename(_DIR_PROCESSED_SEGMENTED, 'train')
+        #training_filename = _get_output_filename(_DIR_PROCESSED_SEGMENTED, 'train')
         # testing_filename = _get_output_filename(_DIR_PROCESSED_SEGMENTED, 'test')
 
-    if tf.gfile.Exists(training_filename): #and tf.gfile.Exists(testing_filename):
-        print('Dataset files already exist. Exiting without re-creating them.')
-        return
+    #if tf.gfile.Exists(training_filename): #and tf.gfile.Exists(testing_filename):
+    #    print('Dataset files already exist. Exiting without re-creating them.')
+    #    return
 
 
     if _EXCLUDED_GRASSES:
@@ -218,20 +236,24 @@ def process(dataset_part):
         exclude_list = []
 
     # First, process training data:
-    with tf.python_io.TFRecordWriter(training_filename) as tfrecord_writer:
-        data_filename = os.path.join(_dir_raw)
-        archive = zipfile.ZipFile(data_filename)
-        archive.extractall(_dir_processed)
-        filenames, class_names = _get_filenames_and_classes(_dir_processed, [setname], exclude_list)
-        # filenames, class_names = _get_filenames_and_classes(_dir_processed, [setname, 'train'], exclude_list)
-        class_dict = dict(zip(class_names, range(len(class_names))))
 
-        _convert_to_tfrecord(filenames, class_dict, tfrecord_writer)
+    data_filename = os.path.join(_dir_raw)
+    archive = zipfile.ZipFile(data_filename)
+    archive.extractall(_dir_processed)
+    filenames, class_names = _get_filenames_and_classes(_dir_processed, [setname], exclude_list)
 
-        utils.save_dict(class_dict, _dir_processed, 'class_dict.json')
+    class_dict = dict(zip(class_names, range(len(class_names))))
+    utils.save_dict(class_dict, _dir_processed, 'class_dict.json')
 
-        tmp_dir = os.path.join(_dir_processed, setname)
-        tf.gfile.DeleteRecursively(tmp_dir)
+    for shard_n in range(_NUM_SHARDS):
+        utils.show_message('Processing shard %d/%d' % (shard_n+1,_NUM_SHARDS))
+        tf_filename = _get_output_filename(_dir_processed, shard_n)
+
+        with tf.python_io.TFRecordWriter(tf_filename) as tfrecord_writer:
+            _convert_to_tfrecord(filenames[shard_n], class_dict, tfrecord_writer)
+
+    tmp_dir = os.path.join(_dir_processed, setname)
+    tf.gfile.DeleteRecursively(tmp_dir)
 
     # # First, process test data:
     # with tf.python_io.TFRecordWriter(testing_filename) as tfrecord_writer:

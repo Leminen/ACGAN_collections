@@ -17,9 +17,10 @@ import argparse
 import shlex
 import itertools
 
-import src.data.datasets.psd as psd_dataset
 import src.utils as utils
+import src.data.preprocess_factory as preprocess_factory
 import src.data.util_data as util_data
+import src.data.datasets.psd as psd_dataset
 
 tfgan = tf.contrib.gan
 layers = tf.contrib.layers
@@ -100,6 +101,11 @@ def hparams_parser_train(hparams_string):
                         default = '1',
                         help = 'Scale significance of generator info loss')
 
+    parser.add_argument('--shard_id',
+                        type = int,
+                        default = 0,
+                        help = '')
+
     return parser.parse_args(shlex.split(hparams_string))
 
 
@@ -110,6 +116,29 @@ def hparams_parser_evaluate(hparams_string):
                         type=int,
                         default=None, 
                         help='Epoch no to reload')
+
+    parser.add_argument('--validity_th',
+                        type=float,
+                        default=0.0,
+                        help='Threshold the confidence of the discriminator to evaluate the validity of the generated samples')
+
+    parser.add_argument('--gen_samples',
+                        action='store_true', 
+                        help = 'Generates random samples from each class. [Defaults to False if argument is omitted]')
+    
+    parser.add_argument('--gen_interpolations',
+                        action='store_true', 
+                        help = 'Generate interpolations between random samples. [Defaults to False if argument is omitted]')
+    
+    parser.add_argument('--num_samples',
+                        type=int,
+                        default=200,
+                        help='nNmber of random samples to generate')
+
+    parser.add_argument('--chunk_size',
+                        type=int,
+                        default=200,
+                        help='Divide the total number of samples into smaller chunk, to lessen load in forward pass')
 
     return parser.parse_args(shlex.split(hparams_string))
 
@@ -131,17 +160,18 @@ class WacGAN_info(object):
         utils.checkfolder(self.dir_results)
 
         if dataset == 'MNIST':
-            self.dateset_filenames = ['data/processed/MNIST/train.tfrecord']
+            self.dataset_filenames = ['data/processed/MNIST/train.tfrecord']
             self.lbls_dim = 10
             self.image_dims = [128,128,1]
 
         elif dataset == 'PSD_Nonsegmented':
-            self.dateset_filenames = ['data/processed/PSD_Nonsegmented/train.tfrecord']
+            self.dataset_filenames = ['data/processed/PSD_Nonsegmented/PSD-data_{:03d}-of-{:03d}.tfrecord'.format(i,psd_dataset._NUM_SHARDS) for i in range(psd_dataset._NUM_SHARDS)]
             self.lbls_dim = 9
             self.image_dims = [128,128,3]
 
         elif dataset == 'PSD_Segmented':
-            self.dateset_filenames = ['data/processed/PSD_Segmented/train.tfrecord']
+            self.dataset_filenames = ['data/processed/PSD_Segmented_Anders/data_shard_{:03d}-of-{:03d}.tfrecord'.format(i+1,psd_dataset._NUM_SHARDS) for i in range(psd_dataset._NUM_SHARDS)]
+            # self.dataset_filenames = ['data/processed/PSD_Segmented/PSD-data_{:03d}-of-{:03d}.tfrecord'.format(i,psd_dataset._NUM_SHARDS) for i in range(psd_dataset._NUM_SHARDS)]
             self.lbls_dim = 9
             self.image_dims = [128,128,3]
 
@@ -437,6 +467,8 @@ class WacGAN_info(object):
 
         self.backup_frequency = args_train.backup_frequency
 
+        self.shard_id = args_train.shard_id
+
         utils.save_model_configuration(args_train, self.dir_base)
 
         # Create folder for saving training results
@@ -447,13 +479,33 @@ class WacGAN_info(object):
             dir_result_train_class = dir_results_train + '/' + str(class_n).zfill(2)
             utils.checkfolder(dir_result_train_class)
 
+        if self.shard_id == 0:
+            dataset_filenames = self.dataset_filenames
+        else:
+            dataset_filenames = self.dataset_filenames[:self.shard_id-1]+self.dataset_filenames[self.shard_id:]
+
+        # Setup preprocessing pipeline
+        preprocessing = preprocess_factory.preprocess_factory()
+
+        # Dataset specific preprocessing
+        if self.dataset == 'MNIST':
+            pass
+
+        elif self.dataset == 'PSD_Nonsegmented':
+            pass
+
+        elif self.dataset == 'PSD_Segmented':
+            preprocessing.prep_pipe_from_string("pad_to_size;{'height': 566, 'width': 566, 'constant': -1.0};random_rotation;{};crop_to_size;{'height': 400, 'width': 400};resize;{'height': 128, 'width': 128}")
+
+
         
         # Use dataset for loading in datasamples from .tfrecord (https://www.tensorflow.org/programmers_guide/datasets#consuming_tfrecord_data)
         # The iterator will get a new batch from the dataset each time a sess.run() is executed on the graph.
-        dataset = tf.data.TFRecordDataset(self.dateset_filenames)
-        dataset = dataset.map(util_data.decode_image)      # decoding the tfrecord
-        dataset = dataset.map(self._genLatentCodes)
+        dataset = tf.data.TFRecordDataset(dataset_filenames)
         dataset = dataset.shuffle(buffer_size = 10000, seed = None)
+        dataset = dataset.map(util_data.decode_image)           # decoding the tfrecord
+        dataset = dataset.map(self._genLatentCodes)             # preprocess data and perform augmentation
+        dataset = dataset.map(preprocessing.pipe)
         dataset = dataset.batch(batch_size = self.batch_size)
         iterator = dataset.make_initializable_iterator()
         input_getBatch = iterator.get_next()
@@ -620,16 +672,18 @@ class WacGAN_info(object):
     
         Returns:
         """
-        num_samples = 200
-        num_interpolations = 50
-        num_interpolation_samples = 11
 
         args_train = utils.load_model_configuration(self.dir_base)
         args_evaluate = hparams_parser_evaluate(hparams_string)
 
         self.unstructured_noise_dim = args_train.unstructured_noise_dim
-        self.info_var_dim = 2
+        self.info_var_dim = args_train.info_var_dim
 
+        num_samples = args_evaluate.num_samples
+        validity_th = args_evaluate.validity_th
+        chunk_size = args_evaluate.chunk_size
+
+        # setup inference
         input_lbls = tf.placeholder(
             dtype = tf.float32, 
             shape = [None, self.lbls_dim], 
@@ -643,14 +697,16 @@ class WacGAN_info(object):
             shape = [None, self.info_var_dim], 
             name = 'input_test_noise')
 
-        _  = self.__generator(input_noise, input_lbls, input_info_noise)
         generated_images = self.__generator(input_noise, input_lbls, input_info_noise, is_training=False, reuse=True)
-        # interpolation_img = tfgan.eval.image_reshaper(tf.concat(generated_images, 0), num_cols=num_interpolations)
+        logits_source, logits_class, _ = self.__discriminator(generated_images, is_training=False, reuse=True)
 
+
+        # select check point file
         ckpt = tf.train.get_checkpoint_state(self.dir_checkpoints)
         
         if args_evaluate.epoch_no == None:
             checkpoint_path = ckpt.model_checkpoint_path
+            dir_results_eval = os.path.join(self.dir_results, 'Evaluation')
         else:
             all_checkpoint_paths = ckpt.all_model_checkpoint_paths[:]
             suffix_match = '-'+str(args_evaluate.epoch_no)
@@ -658,9 +714,15 @@ class WacGAN_info(object):
             
             if ckpt_match:
                 checkpoint_path = ckpt_match[0]
+                dir_results_eval = os.path.join(self.dir_results, 'Evaluation_' + str(args_evaluate.epoch_no))
+                
             else:
                 checkpoint_path = ckpt.model_checkpoint_path
-        
+                dir_results_eval = os.path.join(self.dir_results, 'Evaluation')
+
+        # Generate folders for evaluation samples
+        utils.checkfolder(dir_results_eval)
+
 
         with tf.Session() as sess:
             # Initialize all model Variables.
@@ -672,68 +734,41 @@ class WacGAN_info(object):
             # Reload Tensor values from latest or specified checkpoint
             utils.show_message('Restoring model parameters from: {0}'.format(checkpoint_path))
             saver.restore(sess, checkpoint_path)
-        
-            # Generate evaluation noise
-            np.random.seed(seed = 0)
-            eval_noise = np.random.uniform(low = -1.0, high = 1.0, size = [num_samples, self.unstructured_noise_dim])
-            eval_info_noise = np.random.uniform(low = -1.0, high = 1.0, size = [num_samples, self.info_var_dim])
-            eval_info_noise_interpolations = np.random.uniform(low = -1.0, high = 1.0, size = [num_interpolation_samples, self.info_var_dim])
-            alpha = np.linspace(0.0,1.0, num_interpolation_samples)
 
-            # Generate artificial images for each class
-            for idx_class in range(0,self.lbls_dim):
-                
-                utils.show_message('Generating images for class ' + str(idx_class))
-
-                dir_results_eval = os.path.join(self.dir_results, 'Evaluation', str(idx_class))
-                if args_evaluate.epoch_no != None:
-                    dir_results_eval = os.path.join(self.dir_results, 'Evaluation_' + str(args_evaluate.epoch_no) , str(idx_class))
-                utils.checkfolder(dir_results_eval)
-                
-                eval_lbls = np.zeros(shape = [num_samples, self.lbls_dim])
-                eval_lbls[:,idx_class] = 1
-
-                eval_images = sess.run(
-                    generated_images, 
-                    feed_dict={input_noise:         eval_noise,
-                               input_lbls:          eval_lbls,
-                               input_info_noise:    eval_info_noise})
-
-                for idx_sample in range(num_samples):
-                    utils.save_image_local(
-                        eval_images[idx_sample,:,:,:], 
-                        dir_results_eval,
-                        'Sample_{0}'.format(idx_sample))
-
-                # Create interpolations between pairs of noise vectors
+            ## Generate samples for each class
+            if args_evaluate.gen_samples:
+                # Seed RNG to reproduce results
                 np.random.seed(seed = 0)
-                for _ in range(num_interpolations):
-                    
-                    idx_pair = np.random.choice(num_samples,2)
+                eval_noise = np.random.uniform(low = -1.0, high = 1.0, size = [num_samples,self.unstructured_noise_dim])
+                eval_noise_info = np.random.uniform(low = -1.0, high = 1.0, size = [num_samples,self.info_var_dim])
 
-                    noise_vector0 = np.tile(eval_noise[idx_pair[0]],[num_interpolation_samples,1])
-                    noise_vector1 = np.tile(eval_noise[idx_pair[1]],[num_interpolation_samples,1])
+                chunks_eval_noise = [eval_noise[i:i + chunk_size] for i in range(0, num_samples, chunk_size)]
+                chunks_eval_noise_info = [eval_noise_info[i:i + chunk_size] for i in range(0, num_samples, chunk_size)]
 
-                    eval_noise_interpolation = (alpha * noise_vector0.T).T + ((1-alpha) * noise_vector1.T).T
-                    eval_lbls = np.zeros(shape = [num_interpolation_samples, self.lbls_dim])
-                    eval_lbls[:,idx_class] = 1
+                for idx_class in range(self.lbls_dim):
+                    utils.show_message('Generating samples for class ' + str(idx_class))
 
-                    eval_images_interpolation = sess.run(
-                        generated_images, 
-                        feed_dict={input_noise:     eval_noise_interpolation,
-                                input_lbls:         eval_lbls,
-                                input_info_noise:   eval_info_noise_interpolations})
-                    
-                    interpolation_image = eval_images_interpolation[0,:,:]
-                    for idx_sample in range(1,num_interpolation_samples):
-                        interpolation_image = np.hstack(
-                            (interpolation_image, eval_images_interpolation[idx_sample,:,:,:])
-                        )
-                    
-                    utils.save_image_local(
-                        interpolation_image,
-                        dir_results_eval,
-                        'Interpolation_Sample_{0}_{1}'.format(idx_pair[0],idx_pair[1]))
+                    dir_results_eval_samples = os.path.join(dir_results_eval, 'Samples', str(idx_class))
+                    utils.checkfolder(dir_results_eval_samples)
+
+                    for idx_chunk in range(np.ceil(num_samples/chunk_size)):
+                        eval_lbls = np.zeros(shape = [len(chunks_eval_noise[idx_chunk]), self.lbls_dim])
+                        eval_lbls[:,idx_class] = 1
+
+                        eval_images, logits_s = sess.run(
+                            [generated_images, logits_source], 
+                            feed_dict={input_noise:         chunks_eval_noise[idx_chunk],
+                                       input_info_noise:    chunks_eval_noise_info[idx_chunk],
+                                       input_lbls:          eval_lbls})
+
+                        print(logits_s)
+
+
+                        for idx_sample in range(len(chunks_eval_noise[idx_chunk])):
+                            utils.save_image_local(eval_images[idx_sample,:,:,:], dir_results_eval_samples, 'Sample_{0}'.format(idx_sample + idx_chunk*chunk_size))
+
+
+
                     
     
     
@@ -747,29 +782,9 @@ class WacGAN_info(object):
         """
 
         image = image_proto
-
-        # Dataset specific preprocessing
-        if self.dataset == 'MNIST':
-            pass
-
-        elif self.dataset == 'PSD_Nonsegmented':
-            pass
-
-        elif self.dataset == 'PSD_Segmented':
-            max_dim = psd_dataset._LARGE_IMAGE_DIM
-            height_diff = max_dim - height_proto
-            width_diff = max_dim - width_proto
-
-            paddings = tf.floor_div([[height_diff, height_diff], [width_diff, width_diff], [0,0]],2)
-            image = tf.pad(image, paddings, mode='CONSTANT', name=None, constant_values=-1)
-
-        image = tf.image.resize_images(image, size = self.image_dims[0:-1])  
-
         lbl = tf.one_hot(lbl_proto, self.lbls_dim)
 
-        # unstructured_noise = tf.random_normal([self.unstructured_noise_dim])
         unstructured_noise = tf.random_uniform([self.unstructured_noise_dim], minval = -1, maxval = 1)
-
         info_noise = tf.random_uniform([self.info_var_dim], minval = -1, maxval = 1)
     
         return image, lbl, unstructured_noise, info_noise
