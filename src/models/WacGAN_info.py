@@ -755,17 +755,19 @@ class WacGAN_info(object):
                         eval_lbls = np.zeros(shape = [len(chunks_eval_noise[idx_chunk]), self.lbls_dim])
                         eval_lbls[:,idx_class] = 1
 
-                        eval_images, logits_s = sess.run(
-                            [generated_images, logits_source], 
+                        eval_images, logits_s, logits_c = sess.run(
+                            [generated_images, logits_source, logits_class], 
                             feed_dict={input_noise:         chunks_eval_noise[idx_chunk],
                                        input_info_noise:    chunks_eval_noise_info[idx_chunk],
                                        input_lbls:          eval_lbls})
 
-                        print(logits_s)
+                        #print(logits_s)
 
-
+                        f = open(dir_results_eval_samples+'/scores.txt', 'a')
                         for idx_sample in range(len(chunks_eval_noise[idx_chunk])):
                             utils.save_image_local(eval_images[idx_sample,:,:,:], dir_results_eval_samples, 'Sample_{0}'.format(idx_sample + idx_chunk*chunk_size))
+                            f.write('Sample_{0},{1},{2}\n'.format(idx_sample + idx_chunk*chunk_size, logits_s[idx_sample], logits_c[idx_sample,:]))
+                        f.close()
 
 
 
