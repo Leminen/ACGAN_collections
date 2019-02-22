@@ -697,8 +697,8 @@ class WacGAN_info(object):
             shape = [None, self.info_var_dim], 
             name = 'input_test_noise')
 
-        generated_images = self.__generator(input_noise, input_lbls, input_info_noise, is_training=False, reuse=True)
-        logits_source, logits_class, _ = self.__discriminator(generated_images, is_training=False, reuse=True)
+        generated_images = self.__generator(input_noise, input_lbls, input_info_noise, is_training=False)
+        logits_source, logits_class, _ = self.__discriminator(generated_images, is_training=False)
 
 
         # select check point file
@@ -751,7 +751,7 @@ class WacGAN_info(object):
                     dir_results_eval_samples = os.path.join(dir_results_eval, 'Samples', str(idx_class))
                     utils.checkfolder(dir_results_eval_samples)
 
-                    for idx_chunk in range(np.ceil(num_samples/chunk_size)):
+                    for idx_chunk in range(int(np.ceil(num_samples/chunk_size))):
                         eval_lbls = np.zeros(shape = [len(chunks_eval_noise[idx_chunk]), self.lbls_dim])
                         eval_lbls[:,idx_class] = 1
 
