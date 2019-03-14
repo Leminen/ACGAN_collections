@@ -488,6 +488,9 @@ class WacGAN_info(object):
             shards_idx_training = np.delete(range(len(self.dataset_filenames)), self.shards_idx_test)
             dataset_filenames = [self.dataset_filenames[i] for i in shards_idx_training]
 
+            utils.show_message('Training Data:')
+            print(dataset_filenames)
+
         # Setup preprocessing pipeline
         preprocessing = preprocess_factory.preprocess_factory()
 
