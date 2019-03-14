@@ -101,7 +101,8 @@ def hparams_parser_train(hparams_string):
                         default = '1',
                         help = 'Scale significance of generator info loss')
 
-    parser.add_argument('--shard_id',
+    parser.add_argument('--shards_idx_test',
+                        nargs='+',
                         type = int,
                         default = 0,
                         help = '')
@@ -467,7 +468,7 @@ class WacGAN_info(object):
 
         self.backup_frequency = args_train.backup_frequency
 
-        self.shard_id = args_train.shard_id
+        self.shards_idx_test = args_train.shards_idx_test
 
         utils.save_model_configuration(args_train, self.dir_base)
 
@@ -479,10 +480,12 @@ class WacGAN_info(object):
             dir_result_train_class = dir_results_train + '/' + str(class_n).zfill(2)
             utils.checkfolder(dir_result_train_class)
 
-        if self.shard_id == 0:
+        if 0 in self.shards_idx_test:
             dataset_filenames = self.dataset_filenames
         else:
-            dataset_filenames = self.dataset_filenames[:self.shard_id-1]+self.dataset_filenames[self.shard_id:]
+            self.shards_idx_test = np.subtract(self.shards_idx_test, 1)
+            shards_idx_training = np.delete(range(len(self.dataset_filenames)), self.shards_idx_test)
+            dataset_filenames = [self.dataset_filenames[i] for i in shards_idx_training]
 
         # Setup preprocessing pipeline
         preprocessing = preprocess_factory.preprocess_factory()
