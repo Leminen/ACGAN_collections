@@ -167,13 +167,13 @@ class WacGAN_info(object):
             self.image_dims = [128,128,1]
 
         elif dataset == 'PSD_Nonsegmented':
-            self.dataset_filenames = ['data/processed/PSD_Nonsegmented/PSD-data_{:03d}-of-{:03d}.tfrecord'.format(i,psd_dataset._NUM_SHARDS) for i in range(psd_dataset._NUM_SHARDS)]
+            self.dataset_filenames = ['data/processed/PSD_Nonsegmented/data_shard_{:03d}-of-{:03d}.tfrecord'.format(i,psd_dataset._NUM_SHARDS) for i in range(psd_dataset._NUM_SHARDS)]
             self.lbls_dim = 9
             self.image_dims = [128,128,3]
 
         elif dataset == 'PSD_Segmented':
             self.dataset_filenames = ['data/processed/PSD_Segmented_Anders/data_shard_{:03d}-of-{:03d}.tfrecord'.format(i+1,psd_dataset._NUM_SHARDS) for i in range(psd_dataset._NUM_SHARDS)]
-            # self.dataset_filenames = ['data/processed/PSD_Segmented/PSD-data_{:03d}-of-{:03d}.tfrecord'.format(i,psd_dataset._NUM_SHARDS) for i in range(psd_dataset._NUM_SHARDS)]
+            # self.dataset_filenames = ['data/processed/PSD_Segmented/data_shard_{:03d}-of-{:03d}.tfrecord'.format(i,psd_dataset._NUM_SHARDS) for i in range(psd_dataset._NUM_SHARDS)]
             self.lbls_dim = 9
             self.image_dims = [128,128,3]
 

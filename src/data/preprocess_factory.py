@@ -66,32 +66,10 @@ class preprocess_factory(object):
             height_diff = target_height - image_height
             width_diff = target_width - image_width
 
-            # def pad_image_single(image,height_d,width_d,constant):
-            #     paddings = [[height_d, height_d], [width_d, width_d], [0,0]]
-            #     image = tf.pad(image, 
-            #                       tf.floor_div(paddings,2),
-            #                       mode='CONSTANT', 
-            #                       name=None, 
-            #                       constant_values=constant
-            #                       )
-            #     return image
+            paddings = [[tf.floor_div(height_diff,2), height_diff - tf.floor_div(height_diff,2)],
+                        [tf.floor_div(width_diff,2),  width_diff - tf.floor_div(width_diff,2)], 
+                        [0,0]]
 
-            # def pad_image_batch(images,height_d,width_d,constant):
-            #     paddings = [[0,0], [height_d, height_d], [width_d, width_d], [0,0]]
-            #     image = tf.pad(images, 
-            #                       tf.floor_div(paddings,2),
-            #                       mode='CONSTANT', 
-            #                       name=None, 
-            #                       constant_values=constant
-            #                       )
-            #     return image
-
-            # tf_image = tf.cond(tf.equal(tf.rank(tf_image),4),
-            #                    lambda: pad_image_single(tf_image,height_diff,width_diff,constant_value),
-            #                    lambda: pad_image_batch(tf_image,height_diff,width_diff,constant_value))
-
-            paddings = [[height_diff, height_diff], [width_diff, width_diff], [0,0]]
-            paddings = tf.floor_div(paddings,2)
             
             tf_image = tf.pad(tf_image, paddings, mode='CONSTANT', name=None, constant_values=constant_value)
 

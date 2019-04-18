@@ -7,6 +7,7 @@ import os
 import sys
 
 import numpy as np
+from PIL import Image
 from six.moves import urllib
 import gzip
 import zipfile
@@ -92,7 +93,8 @@ def _get_filenames_and_classes(dataset_dir, setname, exclude_list):
     np.random.seed(0)
     data_root = os.path.join(dataset_dir, *setname)
 
-    directories = []
+    # list classes and class directories
+    directories = [] 
     class_names = []
     for filename in os.listdir(data_root):
         path = os.path.join(data_root, filename)
@@ -101,27 +103,30 @@ def _get_filenames_and_classes(dataset_dir, setname, exclude_list):
                 directories.append(path)
                 class_names.append(filename)
 
+    # list filenames and split them into equal sized chunks for each class 
     photo_filenames = []
-    photo_filenames2 = []
     for _ in range(_NUM_SHARDS):
-        photo_filenames2.append([])
+        photo_filenames.append([])
 
     for directory in directories:
-        if not any(x in directory for x in exclude_list):
-            filenames = os.listdir(directory)
-            paths = [os.path.join(directory, filename) for filename in filenames]
-            paths = np.random.permutation(paths)
-            paths_split = chunkify(paths,_NUM_SHARDS)
+        filenames = os.listdir(directory)
+        filenames = np.random.permutation(filenames) # shuffle list of filenames
+        paths = [os.path.join(directory, filename) for filename in filenames]
 
-            for shard_n in range(_NUM_SHARDS):
-                photo_filenames2[shard_n].extend(paths_split[shard_n])
+        if _EXCLUDE_LARGE_IMAGES:
+            paths_temp = paths.copy()
+            for path in paths_temp:
+                img_temp = Image.open(path)
+                if any(np.array(img_temp.size) > _LARGE_IMAGE_DIM):
+                    paths.remove(path)
+            
+        paths_split = chunkify(paths,_NUM_SHARDS)
+        paths_split = np.random.permutation(paths_split) # shuffle splits to ensure equal sized shards
 
-            for filename in filenames:
-                path = os.path.join(directory, filename)
-                photo_filenames.append(path)
-                
+        for shard_n in range(_NUM_SHARDS):
+            photo_filenames[shard_n].extend(paths_split[shard_n])
 
-    return photo_filenames2, sorted(class_names)
+    return photo_filenames, sorted(class_names)
 
 
 def _convert_to_tfrecord(filenames, class_dict, tfrecord_writer):
@@ -147,24 +152,21 @@ def _convert_to_tfrecord(filenames, class_dict, tfrecord_writer):
             encoded_img = tf.gfile.FastGFile(filenames[i], 'rb').read()
             encoded_img, height, width, channels = image_reader.truncate_image(sess, encoded_img)
 
-            if _EXCLUDE_LARGE_IMAGES and (height > _LARGE_IMAGE_DIM or width > _LARGE_IMAGE_DIM):
-                pass
-            else:
-                class_name = os.path.basename(os.path.dirname(filenames[i]))
-                label = class_dict[class_name]
+            class_name = os.path.basename(os.path.dirname(filenames[i]))
+            label = class_dict[class_name]
 
-                example = util_data.encode_image(
-                    image_data = encoded_img,
-                    image_format = 'png'.encode(),
-                    class_lbl = label,
-                    class_text = class_name.encode(),
-                    height = height,
-                    width = width,
-                    channels = channels,
-                    origin = filenames[i].encode()
-                    )
+            example = util_data.encode_image(
+                image_data = encoded_img,
+                image_format = 'png'.encode(),
+                class_lbl = label,
+                class_text = class_name.encode(),
+                height = height,
+                width = width,
+                channels = channels,
+                origin = filenames[i].encode()
+                )
 
-                tfrecord_writer.write(example.SerializeToString())
+            tfrecord_writer.write(example.SerializeToString())
         
 
 def _get_output_filename(dataset_dir, shard_id):
@@ -207,44 +209,38 @@ def download(dataset_part):
 
 
 def process(dataset_part):
-    """Runs the download and conversion operation.
+    """Runs the conversion operation.
 
     Args:
-      dataset_dir: The dataset directory where the dataset is stored.
+      dataset_part: The dataset part to be converted [Nonsegmented, Segmented].
     """
     if dataset_part == 'Nonsegmented':
         _dir_raw = _DIR_RAW_NONSEGMENTED
         _dir_processed = _DIR_PROCESSED_NONSEGMENTED
         setname = 'Nonsegmented'
-        #training_filename = _get_output_filename(_DIR_PROCESSED_NONSEGMENTED, 'train')
-        # testing_filename = _get_output_filename(_DIR_PROCESSED_NONSEGMENTED, 'test')
     else:
         _dir_raw = _DIR_RAW_SEGMENTED
         _dir_processed = _DIR_PROCESSED_SEGMENTED
         setname = 'Segmented' 
-        #training_filename = _get_output_filename(_DIR_PROCESSED_SEGMENTED, 'train')
-        # testing_filename = _get_output_filename(_DIR_PROCESSED_SEGMENTED, 'test')
-
-    #if tf.gfile.Exists(training_filename): #and tf.gfile.Exists(testing_filename):
-    #    print('Dataset files already exist. Exiting without re-creating them.')
-    #    return
-
 
     if _EXCLUDED_GRASSES:
         exclude_list = ['Black-grass', 'Common wheat', 'Loose Silky-bent']
     else:
         exclude_list = []
 
-    # First, process training data:
-
+    # extract raw data
     data_filename = os.path.join(_dir_raw)
     archive = zipfile.ZipFile(data_filename)
     archive.extractall(_dir_processed)
+
+    # list filenames and classes. Also divides filenames into equally sized shards
     filenames, class_names = _get_filenames_and_classes(_dir_processed, [setname], exclude_list)
 
+    # save class dictionary
     class_dict = dict(zip(class_names, range(len(class_names))))
     utils.save_dict(class_dict, _dir_processed, 'class_dict.json')
 
+    # convert images to tf records based on the list of filenames
     for shard_n in range(_NUM_SHARDS):
         utils.show_message('Processing shard %d/%d' % (shard_n+1,_NUM_SHARDS))
         tf_filename = _get_output_filename(_dir_processed, shard_n)
@@ -252,21 +248,9 @@ def process(dataset_part):
         with tf.python_io.TFRecordWriter(tf_filename) as tfrecord_writer:
             _convert_to_tfrecord(filenames[shard_n], class_dict, tfrecord_writer)
 
+    # clean up
     tmp_dir = os.path.join(_dir_processed, setname)
     tf.gfile.DeleteRecursively(tmp_dir)
-
-    # # First, process test data:
-    # with tf.python_io.TFRecordWriter(testing_filename) as tfrecord_writer:
-    #     data_filename = os.path.join(_dir_raw)
-    #     archive = zipfile.ZipFile(data_filename)
-    #     archive.extractall(_dir_processed)
-    #     # filenames, class_names = _get_filenames_and_classes(_dir_processed, [setname, 'test'], exclude_list)
-    #     class_dict = dict(zip(class_names, range(len(class_names))))
-
-    #     _convert_to_tfrecord(filenames, class_dict, tfrecord_writer)
-
-    #     tmp_dir = os.path.join(_dir_processed, setname)
-    #     tf.gfile.DeleteRecursively(tmp_dir)
 
     print('\nFinished converting the PSD %s dataset!' % setname)
 

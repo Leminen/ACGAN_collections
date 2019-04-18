@@ -83,6 +83,12 @@ def hparams_parser_train(hparams_string):
                         type = int,
                         default = '10',
                         help = 'Number of iterations between backup of network weights')
+    
+    parser.add_argument('--shards_idx_test',
+                        nargs='+',
+                        type = int,
+                        default = 0,
+                        help = '')
 
     return parser.parse_args(shlex.split(hparams_string))
 
@@ -163,12 +169,12 @@ class WacGAN(object):
             self.image_dims = [128,128,1]
 
         elif dataset == 'PSD_Nonsegmented':
-            self.dateset_filenames = ['data/processed/PSD_Nonsegmented/train.tfrecord']
+            self.dataset_filenames = ['data/processed/PSD_Nonsegmented/data_shard_{:03d}-of-{:03d}.tfrecord'.format(i,psd_dataset._NUM_SHARDS) for i in range(psd_dataset._NUM_SHARDS)]
             self.lbls_dim = 9
             self.image_dims = [128,128,3]
 
         elif dataset == 'PSD_Segmented':
-            self.dateset_filenames = ['data/processed/PSD_Segmented/train.tfrecord']
+            self.dataset_filenames = ['data/processed/PSD_Segmented/data_shard_{:03d}-of-{:03d}.tfrecord'.format(i+1,psd_dataset._NUM_SHARDS) for i in range(psd_dataset._NUM_SHARDS)]
             self.lbls_dim = 9
             self.image_dims = [128,128,3]
 
@@ -449,16 +455,45 @@ class WacGAN(object):
         self.class_scale_g = args_train.class_scale_g
 
         self.backup_frequency = args_train.backup_frequency
+        self.shards_idx_test = args_train.shards_idx_test
 
         utils.save_model_configuration(args_train, self.dir_base)
 
-        
+        # Create folder for saving training results
+        dir_results_train = os.path.join(self.dir_results, 'Training')
+        utils.checkfolder(dir_results_train)
+
+        # select training dataset
+        if 0 in self.shards_idx_test:
+            dataset_filenames = self.dataset_filenames
+        else:
+            self.shards_idx_test = np.subtract(self.shards_idx_test, 1)
+            shards_idx_training = np.delete(range(len(self.dataset_filenames)), self.shards_idx_test)
+            dataset_filenames = [self.dataset_filenames[i] for i in shards_idx_training]
+
+            utils.show_message('Training Data:')
+            print(dataset_filenames)
+
+        # Setup preprocessing pipeline
+        preprocessing = preprocess_factory.preprocess_factory()
+
+        # Dataset specific preprocessing
+        if self.dataset == 'MNIST':
+            pass
+
+        elif self.dataset == 'PSD_Nonsegmented':
+            pass
+
+        elif self.dataset == 'PSD_Segmented':
+            preprocessing.prep_pipe_from_string("pad_to_size;{'height': 566, 'width': 566, 'constant': -1.0};random_rotation;{};crop_to_size;{'height': 400, 'width': 400};resize;{'height': 128, 'width': 128}")
+
         # Use dataset for loading in datasamples from .tfrecord (https://www.tensorflow.org/programmers_guide/datasets#consuming_tfrecord_data)
         # The iterator will get a new batch from the dataset each time a sess.run() is executed on the graph.
-        dataset = tf.data.TFRecordDataset(self.dateset_filenames)
-        dataset = dataset.map(util_data.decode_image)      # decoding the tfrecord
-        dataset = dataset.map(self._genLatentCodes)
+        dataset = tf.data.TFRecordDataset(dataset_filenames)
         dataset = dataset.shuffle(buffer_size = 10000, seed = None)
+        dataset = dataset.map(util_data.decode_image)      # decoding the tfrecord
+        dataset = dataset.map(self._genLatentCodes)        # preprocess data and perform data augmentation
+        dataset = dataset.map(preprocessing.pipe)          # preprocess data and perform data augmentation
         dataset = dataset.batch(batch_size = self.batch_size)
         iterator = dataset.make_initializable_iterator()
         input_getBatch = iterator.get_next()
@@ -497,9 +532,6 @@ class WacGAN(object):
 
         # create constant test variable to inspect changes in the model
         test_noise, test_lbls = self._genTestInput(self.lbls_dim, n_samples = self.n_testsamples)
-
-        dir_results_train = os.path.join(self.dir_results, 'Training')
-        utils.checkfolder(dir_results_train)
 
         with tf.Session() as sess:
             # Initialize all model Variables.
@@ -756,7 +788,6 @@ class WacGAN(object):
 
 
                         
-    
     def _genLatentCodes(self, image_proto, lbl_proto, class_proto, height_proto, width_proto, channels_proto, origin_proto):
         """ Augment dataset entries. Adds two continuous latent 
             codes for the network to estimate. Also generates a GAN noise
@@ -766,28 +797,9 @@ class WacGAN(object):
         Returns:
         """
 
-        image = image_proto
-
-        # Dataset specific preprocessing
-        if self.dataset == 'MNIST':
-            pass
-
-        elif self.dataset == 'PSD_Nonsegmented':
-            pass
-
-        elif self.dataset == 'PSD_Segmented':
-            max_dim = psd_dataset._LARGE_IMAGE_DIM
-            height_diff = max_dim - height_proto
-            width_diff = max_dim - width_proto
-
-            paddings = tf.floor_div([[height_diff, height_diff], [width_diff, width_diff], [0,0]],2)
-            image = tf.pad(image, paddings, mode='CONSTANT', name=None, constant_values=-1)
-
-        image = tf.image.resize_images(image, size = self.image_dims[0:-1])  
-
+        image = image_proto 
         lbl = tf.one_hot(lbl_proto, self.lbls_dim)
 
-        # unstructured_noise = tf.random_normal([self.unstructured_noise_dim])
         unstructured_noise = tf.random_uniform([self.unstructured_noise_dim], minval = -1, maxval = 1)
     
         return image, lbl, unstructured_noise

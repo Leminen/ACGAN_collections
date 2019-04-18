@@ -25,8 +25,8 @@ from src.models.WacGAN_small import WacGAN_small
 from src.models.WacGAN_info import WacGAN_info
 from src.visualization import visualize
 
-DEVICE_ID_LIST = GPUtil.getFirstAvailable(attempts = 100, interval = 120)
-os.environ["CUDA_VISIBLE_DEVICES"] = str(DEVICE_ID_LIST[0])
+#DEVICE_ID_LIST = GPUtil.getFirstAvailable(attempts = 100, interval = 120)
+#os.environ["CUDA_VISIBLE_DEVICES"] = str(DEVICE_ID_LIST[0])
 
 """parsing and configuration"""
 def parse_args():
@@ -79,6 +79,7 @@ def parse_args():
 # ----------------------------------------------------------------------------------------------------------------------
 # Define the arguments for the training
 # ----------------------------------------------------------------------------------------------------------------------
+
     parser.add_argument('--id',
                         type= str,
                         default = None,
@@ -87,7 +88,6 @@ def parse_args():
     parser.add_argument('--hparams',
                         type=str, default = '',
                         help='CLI arguments for the model wrapped in a string')
-
 
     return check_args(parser.parse_args())
 
