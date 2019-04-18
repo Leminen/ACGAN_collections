@@ -18,9 +18,9 @@ import shlex
 import itertools
 
 import src.utils as utils
-import src.data.preprocess_factory as preprocess_factory
 import src.data.util_data as util_data
 import src.data.datasets.psd as psd_dataset
+import src.data.preprocess_factory as preprocess_factory
 
 tfgan = tf.contrib.gan
 layers = tf.contrib.layers

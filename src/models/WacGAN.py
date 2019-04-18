@@ -16,9 +16,10 @@ import scipy
 import argparse
 import shlex
 
-import src.data.datasets.psd as psd_dataset
 import src.utils as utils
 import src.data.util_data as util_data
+import src.data.datasets.psd as psd_dataset
+import src.data.preprocess_factory as preprocess_factory
 
 tfgan = tf.contrib.gan
 layers = tf.contrib.layers
