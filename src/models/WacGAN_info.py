@@ -613,7 +613,9 @@ class WacGAN_info(object):
                 
                 ### ----------------------------------------------------------
                 ### Update model
-                utils.show_message('Running training epoch no: {0}'.format(epoch_n))
+                if (np.mod(epoch_n,100) == 0) or epoch_n < 25:
+                    utils.show_message('Running training epoch no: {0}'.format(epoch_n))
+
                 while True:
                 # for idx in range(0, num_batches):
                     try:

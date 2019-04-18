@@ -103,10 +103,10 @@ def show_all_variables():
 def show_message(msg_str, lvl=0):
 
     if lvl == 0:
-        print(datetime.datetime.now(), '-', msg_str)
+        print('{0} - {1}'.format(datetime.datetime.now(), msg_str))
     elif lvl == 1:
         print('______________________________________________________________')
-        print(datetime.datetime.now(), '-', msg_str)
+        print('{0} - {1}'.format(datetime.datetime.now(), msg_str))
         print('--------------------------------------------------------------')
     else:
         pass

@@ -167,6 +167,7 @@ def _convert_to_tfrecord(filenames, class_dict, tfrecord_writer):
                 )
 
             tfrecord_writer.write(example.SerializeToString())
+        print('\n', end = '')
         
 
 def _get_output_filename(dataset_dir, shard_id):
@@ -200,6 +201,7 @@ def download(dataset_part):
             sys.stdout.flush()
 
         filepath, _ = urllib.request.urlretrieve(_data_url, filepath, _progress)
+        print('\n', end = '')
 
         print()
         with tf.gfile.GFile(filepath) as f:
