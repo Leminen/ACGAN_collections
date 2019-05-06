@@ -118,6 +118,11 @@ def hparams_parser_evaluate(hparams_string):
                         type=int,
                         default=200,
                         help='number of random samples to generate')
+
+    parser.add_argument('--chunk_size',
+                        type=int,
+                        default=200,
+                        help='Divide the total number of samples into smaller chunk, to lessen load in forward pass')
     
     parser.add_argument('--interpolations_num',
                         type=int,
@@ -629,8 +634,11 @@ class WacGAN(object):
         self.unstructured_noise_dim = args_train.unstructured_noise_dim
 
         num_samples = args_evaluate.num_samples
+        chunk_size = args_evaluate.chunk_size
+
         interpolations_num = args_evaluate.interpolations_num
         interpolations_size = args_evaluate.interpolations_size
+
         analyze_sample_idx = args_evaluate.analyze_sample_idx
         analyze_delta = args_evaluate.analyze_delta
         analyze_size = args_evaluate.analyze_size
@@ -644,9 +652,8 @@ class WacGAN(object):
             shape = [None, self.unstructured_noise_dim], 
             name = 'input_test_noise')
 
-        _  = self.__generator(input_noise, input_lbls)
-        generated_images = self.__generator(input_noise, input_lbls, is_training=False, reuse=True)
-        # interpolation_img = tfgan.eval.image_reshaper(tf.concat(generated_images, 0), num_cols=num_interpolations)
+        generated_images = self.__generator(input_noise, input_lbls, is_training=False)
+        logits_source, logits_class = self.__discriminator(generated_images, is_training=False)
 
 
         ckpt = tf.train.get_checkpoint_state(self.dir_checkpoints)
@@ -688,7 +695,6 @@ class WacGAN(object):
                 np.random.seed(seed = 0)
                 eval_noise = np.random.uniform(low = -1.0, high = 1.0, size = [num_samples,self.unstructured_noise_dim])
 
-                chunk_size = 200
                 eval_noise_chunks = [eval_noise[i:i + chunk_size] for i in range(0, len(eval_noise), chunk_size)]
 
                 for idx_class in range(self.lbls_dim):
@@ -701,13 +707,16 @@ class WacGAN(object):
                         eval_lbls = np.zeros(shape = [len(eval_noise_chunks[idx_chunk]), self.lbls_dim])
                         eval_lbls[:,idx_class] = 1
 
-                        eval_images = sess.run(
-                            generated_images, 
-                            feed_dict={input_noise: eval_noise_chunks[idx_chunk],
-                                    input_lbls:  eval_lbls})
+                        eval_images, logits_s, logits_c = sess.run(
+                            [generated_images, logits_source, logits_class],
+                            feed_dict={input_noise:     eval_noise_chunks[idx_chunk],
+                                       input_lbls:      eval_lbls})
 
+                        f = open(dir_results_eval_samples+'/scores.txt', 'a')
                         for idx_sample in range(len(eval_noise_chunks[idx_chunk])):
                             utils.save_image_local(eval_images[idx_sample,:,:,:], dir_results_eval_samples, 'Sample_{0}'.format(idx_sample + idx_chunk*chunk_size))
+                            f.write('Sample_{0},{1},{2}\n'.format(idx_sample + idx_chunk*chunk_size, logits_s[idx_sample], logits_c[idx_sample,:]))
+                        f.close()
 
 
             ## Generate interpolations for each class

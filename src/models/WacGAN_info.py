@@ -119,11 +119,6 @@ def hparams_parser_evaluate(hparams_string):
                         default=None, 
                         help='Epoch no to reload')
 
-    parser.add_argument('--validity_th',
-                        type=float,
-                        default=0.0,
-                        help='Threshold the confidence of the discriminator to evaluate the validity of the generated samples')
-
     parser.add_argument('--gen_samples',
                         action='store_true', 
                         help = 'Generates random samples from each class. [Defaults to False if argument is omitted]')
@@ -135,7 +130,7 @@ def hparams_parser_evaluate(hparams_string):
     parser.add_argument('--num_samples',
                         type=int,
                         default=200,
-                        help='nNmber of random samples to generate')
+                        help='Number of random samples to generate')
 
     parser.add_argument('--chunk_size',
                         type=int,
@@ -689,7 +684,6 @@ class WacGAN_info(object):
         self.info_var_dim = args_train.info_var_dim
 
         num_samples = args_evaluate.num_samples
-        validity_th = args_evaluate.validity_th
         chunk_size = args_evaluate.chunk_size
 
         # setup inference
@@ -708,7 +702,6 @@ class WacGAN_info(object):
 
         generated_images = self.__generator(input_noise, input_lbls, input_info_noise, is_training=False)
         logits_source, logits_class, _ = self.__discriminator(generated_images, is_training=False)
-
 
         # select check point file
         ckpt = tf.train.get_checkpoint_state(self.dir_checkpoints)
