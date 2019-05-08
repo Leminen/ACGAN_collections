@@ -83,6 +83,7 @@ def _get_filenames_and_classes(dataset_dir, setname):
 
     for directory in directories:
         filenames = os.listdir(directory)
+        filenames = list(filter(lambda fn: fn.endswith('.png'), filenames))
         filenames = np.random.permutation(filenames) # shuffle list of filenames
         paths = [os.path.join(directory, filename) for filename in filenames]
             
