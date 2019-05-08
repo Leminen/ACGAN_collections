@@ -6,6 +6,7 @@ import src.data.util_data as util_data
 
 import src.data.datasets.mnist as mnist
 import src.data.datasets.psd as psd
+import src.data.datasets.GAN_samples as GAN_samples
 
 def make_dataset(dataset):
     dir_rawData = 'data/raw/'+ dataset
@@ -19,8 +20,13 @@ def make_dataset(dataset):
 
     elif dataset == 'PSD_Segmented':
         psd.download('Segmented')
+    
+    elif dataset.startswith('GAN_samples_'):
+        dataset_part = dataset[12:]
+        GAN_samples.download(dataset_part)
 
     else:
+        print('No matching dataset for: {0}'.format(dataset))
         pass
 
 def process_dataset(dataset):
@@ -36,5 +42,10 @@ def process_dataset(dataset):
     elif dataset == 'PSD_Segmented':
         psd.process('Segmented')
 
+    elif dataset.startswith('GAN_samples_'):
+        dataset_part = dataset[12:]
+        GAN_samples.process(dataset_part)
+
     else:
+        print('No matching dataset for: {0}'.format(dataset))
         pass
