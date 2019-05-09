@@ -19,6 +19,7 @@ import shlex
 import src.utils as utils
 import src.data.util_data as util_data
 import src.data.datasets.psd as psd_dataset
+import src.data.datasets.GAN_samples as GAN_samples
 import src.data.preprocess_factory as preprocess_factory
 
 tfgan = tf.contrib.gan
@@ -148,6 +149,11 @@ def hparams_parser_evaluate(hparams_string):
                         type=int,
                         default = 15,
                         help='number of samples in each analysis')
+    
+    parser.add_argument('--convert_samples',
+                        action='store_true', 
+                        help = 'Post evaluation command. Converts GAN samples to tfrecord')
+    
 
 
     return parser.parse_args(shlex.split(hparams_string))
@@ -797,6 +803,34 @@ class WacGAN(object):
                                 image_analyse = np.hstack((image_analyse, eval_images[idx_sample,:,:,:]))
                         
                         utils.save_image_local(image_analyse, dir_results_eval_analyze, 'Analysis_noisedim_{0}'.format(idx_noisedim))
+
+
+    def post_evaluation(self, hparams_string):
+        """ Run post evaluation on the results of the model
+        Args:
+    
+        Returns:
+        """
+        args_evaluate = hparams_parser_evaluate(hparams_string)
+
+        if args_evaluate.epoch_no == None:
+            setname = 'Evaluation'
+        else:
+            setname = 'Evaluation_' + str(args_evaluate.epoch_no)
+
+        dir_results_eval = os.path.join(self.dir_results, setname)
+
+        if not(os.path.isdir(dir_results_eval)):
+            utils.show_message('{0} does not exist!'.format(dir_results_eval))
+            return
+        
+        if args_evaluate.convert_samples:
+            if os.path.isdir(os.path.join(dir_results_eval,'Samples')):
+                GAN_samples.interim(self.model, setname)
+            else:
+                utils.show_message('No GAN samples found in {0}'.format(dir_results_eval))
+            
+        
 
 
                         

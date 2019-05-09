@@ -52,7 +52,11 @@ def parse_args():
 
     parser.add_argument('--evaluate_model', 
                         action='store_true', 
-                        help = 'Run evaluation of the model by computing and visualizing the results [Defaults to False if argument is omitted]')
+                        help = 'Run evaluation of the model by computing the results [Defaults to False if argument is omitted]')
+    
+    parser.add_argument('--posteval_model', 
+                        action='store_true', 
+                        help = 'Run post evaluation of the model by visualizing or reformatting the results [Defaults to False if argument is omitted]')
     
 # ----------------------------------------------------------------------------------------------------------------------
 # Define the arguments used in the entire pipeline
@@ -70,9 +74,9 @@ def parse_args():
 
     parser.add_argument('--dataset', 
                         type=str, default='MNIST', 
-                        # choices=['MNIST',
-                        #          'PSD_Nonsegmented',
-                        #          'PSD_Segmented'],
+                        choices=['MNIST',
+                                 'PSD_Nonsegmented',
+                                 'PSD_Segmented'],
                         #required = True,
                         help='The name of dataset')                   
     
@@ -191,6 +195,14 @@ def main():
                 id = args.id)
             model.evaluate(hparams_string = args.hparams)
 
+    if args.posteval_model:
+        utils.show_message('Running Post Evaluation on Network: {0}'.format(args.model), lvl = 1)
+
+        if args.model == 'WacGAN':
+            model = WacGAN(
+                dataset = args.dataset,
+                id = args.id)
+            model.post_evaluation(hparams_string = args.hparams)
 
         #################################
         ####### To Be Implemented #######

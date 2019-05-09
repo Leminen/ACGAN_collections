@@ -14,7 +14,7 @@ import tensorflow as tf
 import src.utils as utils
 import src.data.util_data as util_data
 
-_NUM_SHARDS = 1
+_NUM_SHARDS = 10
 
 
 def chunkify(lst,n):
@@ -53,7 +53,7 @@ class ImageReader(object):
             feed_dict={self._decode_png_data: image_data})
 
 
-def _get_filenames_and_classes(dataset_dir, setname):
+def _get_filenames_and_classes(data_root):
     """Returns a list of filenames and inferred class names.
 
     Args:
@@ -65,7 +65,6 @@ def _get_filenames_and_classes(dataset_dir, setname):
       subdirectories, representing class names.
     """
     np.random.seed(0)
-    data_root = os.path.join(dataset_dir, *setname)
 
     # list classes and class directories
     directories = [] 
@@ -150,64 +149,32 @@ def _get_output_filename(dataset_dir, shard_id):
     return '%s/data_shard_%03d-of-%03d.tfrecord' % (dataset_dir, shard_id+1, _NUM_SHARDS)
 
 
-def download(dataset_part):
-    """Downloads PSD locally
+
+def interim(model_name, setname):
+    """ Convert GAN image samples to tfrecord
+
     """
 
-    _dir_data = os.path.join('models', dataset_part,'results')
-    if not(os.path.exists(_dir_data)):
-        print('{0} directory does not exist'.format(dataset_part))
-        return
+    _dir_results = os.path.join('models', model_name, 'results', setname, 'Samples')
+    _dir_interim = os.path.join('data/interim', model_name, setname)
+    utils.checkfolder(_dir_interim)
 
-    lst_evalFolders = os.listdir(_dir_data)
-    lst_evalFolders = list(filter(lambda folder: folder.startswith('Evaluation'), lst_evalFolders))
+    # list filenames and classes. Also divides filenames into equally sized shards
+    filenames, class_names = _get_filenames_and_classes(_dir_results)
 
-    if len(lst_evalFolders)== 0:
-        print('No model evaluations found for: {0}'.format(dataset_part))
-        return
-    
-    for folder in lst_evalFolders:
-        dir_src = os.path.join(_dir_data, folder)
-        dir_dest = os.path.join('data/raw', 'GAN_samples_' + dataset_part, folder)
-        print('>> Copying {0} to {1}'.format(dir_src, dir_dest))
-        dir_util.copy_tree(dir_src, dir_dest)
-        #shutil.copytree(dir_src, dir_dest)
+    # save class dictionary
+    class_dict = dict(zip(class_names, range(len(class_names))))
+    utils.save_dict(class_dict, _dir_interim, 'class_dict.json')
 
+    # convert images to tf records based on the list of filenames
+    for shard_n in range(_NUM_SHARDS):
+        utils.show_message('Processing shard %d/%d' % (shard_n+1,_NUM_SHARDS))
+        tf_filename = _get_output_filename(_dir_interim, shard_n)
 
-def process(dataset_part):
-    """Runs the conversion operation.
-
-    Args:
-      dataset_part: The dataset part to be converted.
-    """
-
-    _dir_raw = os.path.join('data/raw', 'GAN_samples_' + dataset_part)
-    _dir_processed = os.path.join('data/processed', 'GAN_samples_' + dataset_part)
-    setname = 'Samples'
-
-    lst_evalFolders = os.listdir(_dir_raw)
-    
-    for folder in lst_evalFolders:
-        dir_raw = os.path.join(_dir_raw,folder)
-        dir_processed = os.path.join(_dir_processed,folder)
-        utils.checkfolder(dir_processed)
-
-        utils.show_message('Processing samples from {0}'.format(folder))
-
-        # list filenames and classes. Also divides filenames into equally sized shards
-        filenames, class_names = _get_filenames_and_classes(dir_raw, [setname])
-
-        # save class dictionary
-        class_dict = dict(zip(class_names, range(len(class_names))))
-
-        # convert images to tf records based on the list of filenames
-        shard_n = 0
-        tf_filename = _get_output_filename(dir_processed, shard_n)
         with tf.python_io.TFRecordWriter(tf_filename) as tfrecord_writer:
             _convert_to_tfrecord(filenames[shard_n], class_dict, tfrecord_writer)
-
-        print('\nFinished converting the PSD %s dataset!' % setname)
-
+        
+    print('\nFinished converting GAN samples to tfrecord for %s %s!' % (model_name, setname))
 
 
   
