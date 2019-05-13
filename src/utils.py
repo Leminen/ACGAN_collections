@@ -129,8 +129,9 @@ def load_model_configuration(path):
     return Namespace(data)
 
 def save_image_local(image, path, infostr):
-    datestr = datetime.datetime.now().strftime('%Y%m%d_T%H%M%S')
-    filename = datestr + '_' + infostr + '.png'
+    # datestr = datetime.datetime.now().strftime('%Y%m%d_T%H%M%S')
+    # filename = datestr + '_' + infostr + '.png'
+    filename = infostr + '.png'
     path = os.path.join(path,filename)
     image = np.squeeze(image)
     scipy.misc.toimage(image, cmin=-1, cmax=1).save(path)

@@ -731,37 +731,64 @@ class WacGAN(object):
                 np.random.seed(seed = 0)
                 interp = np.linspace(0.0,1.0, interpolations_size)
 
+                dir_results_eval_interpolations = os.path.join(dir_results_eval, 'Interpolations')
+                utils.checkfolder(dir_results_eval_interpolations)
+
                 for idx_interpolation in range(interpolations_num):
                     utils.show_message('Generating random interpolation idx:  ' + str(idx_interpolation))
+
+                    dir_results_eval_interp_sub = os.path.join(dir_results_eval_interpolations, 'Components_{0}'.format(idx_interpolation))
+                    utils.checkfolder(dir_results_eval_interp_sub)
 
                     # Create interpolation between two random noise vectors
                     eval_noise = np.random.uniform(low = -1.0, high = 1.0, size = [2,self.unstructured_noise_dim])
                     eval_noise = np.outer(interp, eval_noise[1]) + np.outer((1-interp), eval_noise[0])
+                    eval_noise = np.tile(eval_noise,[self.lbls_dim,1])
 
-                    # Generate interpolation images for each class
-                    for idx_class in range(self.lbls_dim):
-                        
-                        dir_results_eval_interpolations = os.path.join(dir_results_eval, 'Interpolations', str(idx_class))
-                        dir_results_eval_interpolations_subcomponents = os.path.join(dir_results_eval_interpolations, 'subcomponents')
-                        if idx_interpolation == 0:
-                            utils.checkfolder(dir_results_eval_interpolations)
-                            utils.checkfolder(dir_results_eval_interpolations_subcomponents)
+                    eval_lbls = np.diag(np.ones([self.lbls_dim,]))
+                    eval_lbls = np.repeat(eval_lbls,interpolations_size, axis = 0)
 
-                        eval_lbls = np.zeros(shape = [interpolations_size, self.lbls_dim])
-                        eval_lbls[:,idx_class] = 1
-
-                        eval_images = sess.run(
+                    eval_images = sess.run(
                             generated_images, 
                             feed_dict={input_noise: eval_noise,
                                        input_lbls:  eval_lbls})
 
-                        interpolation_image = eval_images[0,:,:]
-                        for idx_sample in range(interpolations_size):
-                            utils.save_image_local(eval_images[idx_sample,:,:,:], dir_results_eval_interpolations_subcomponents, 'Interpolation_{0}_{1}'.format(idx_interpolation,idx_sample))
-                            if idx_sample != 0:
-                                interpolation_image = np.hstack((interpolation_image, eval_images[idx_sample,:,:,:]))
+                    interpolation_image = np.vstack(
+                        np.hstack(eval_images[idx_class*interpolations_size:(idx_class+1)*interpolations_size,:,:,:]) for idx_class in range(self.lbls_dim))
+
+                    utils.save_image_local(interpolation_image, dir_results_eval_interpolations, 'Interpolation_{0}'.format(idx_interpolation))
+
+                    for idx_class in range(self.lbls_dim):
+                        for idx_interp in range(interpolations_num):
+                            utils.save_image_local(eval_images[idx_class*self.lbls_dim+idx_interp,:,:,:],dir_results_eval_interp_sub,'Class{0}_Part{1}'.format(idx_class,idx_interp))
+
+
+                    # # Generate interpolation images for each class
+                    # for idx_class in range(self.lbls_dim):
                         
-                        utils.save_image_local(interpolation_image, dir_results_eval_interpolations, 'Interpolation_{0}'.format(idx_interpolation))
+                    #     dir_results_eval_interpolations = os.path.join(dir_results_eval, 'Interpolations', str(idx_class))
+                    #     dir_results_eval_interpolations_subcomponents = os.path.join(dir_results_eval_interpolations, 'subcomponents')
+                    #     if idx_interpolation == 0:
+                    #         utils.checkfolder(dir_results_eval_interpolations)
+                    #         utils.checkfolder(dir_results_eval_interpolations_subcomponents)
+
+                    #     eval_lbls = np.zeros(shape = [interpolations_size, self.lbls_dim])
+                    #     eval_lbls[:,idx_class] = 1
+
+                    #     eval_images = sess.run(
+                    #         generated_images, 
+                    #         feed_dict={input_noise: eval_noise,
+                    #                    input_lbls:  eval_lbls})
+
+                    #     interpolation_image = eval_images[0,:,:]
+
+
+                    #     for idx_sample in range(interpolations_size):
+                    #         utils.save_image_local(eval_images[idx_sample,:,:,:], dir_results_eval_interpolations_subcomponents, 'Interpolation_{0}_{1}'.format(idx_interpolation,idx_sample))
+                    #         if idx_sample != 0:
+                    #             interpolation_image = np.hstack((interpolation_image, eval_images[idx_sample,:,:,:]))
+                        
+                    #     utils.save_image_local(interpolation_image, dir_results_eval_interpolations, 'Interpolation_{0}'.format(idx_interpolation))
 
 
             ## Generate minor alterations
