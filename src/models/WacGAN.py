@@ -759,8 +759,8 @@ class WacGAN(object):
                     utils.save_image_local(interpolation_image, dir_results_eval_interpolations, 'Interpolation_{0}'.format(idx_interpolation))
 
                     for idx_class in range(self.lbls_dim):
-                        for idx_interp in range(interpolations_num):
-                            utils.save_image_local(eval_images[idx_class*self.lbls_dim+idx_interp,:,:,:],dir_results_eval_interp_sub,'Class{0}_Part{1}'.format(idx_class,idx_interp))
+                        for idx_interp in range(interpolations_size):
+                            utils.save_image_local(eval_images[idx_class*interpolations_size+idx_interp,:,:,:],dir_results_eval_interp_sub,'Class{0}_Part{1}'.format(idx_class,idx_interp))
 
 
                     # # Generate interpolation images for each class
