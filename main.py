@@ -204,6 +204,12 @@ def main():
                 id = args.id)
             model.post_evaluation(hparams_string = args.hparams)
 
+        if args.model == 'WacGAN_info':
+            model = WacGAN_info(
+                dataset = args.dataset,
+                id = args.id)
+            model.post_evaluation(hparams_string = args.hparams)
+
         #################################
         ####### To Be Implemented #######
         #################################
