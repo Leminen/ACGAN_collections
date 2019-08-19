@@ -54,7 +54,7 @@ def hparams_parser_train(hparams_string):
 
     parser.add_argument('--n_testsamples', 
                         type=int, 
-                        default='20',
+                        default='15',
                         help='Number of samples in test images per class')
 
     parser.add_argument('--unstructured_noise_dim',
@@ -74,17 +74,17 @@ def hparams_parser_train(hparams_string):
     
     parser.add_argument('--class_scale_d',
                         type = float,
-                        default = '1',
+                        default = '7.5',
                         help = 'Scale significance of discriminator class loss')
 
     parser.add_argument('--class_scale_g',
                         type = float,
-                        default = '1',
+                        default = '7.5',
                         help = 'Scale significance of generator class loss')
     
     parser.add_argument('--backup_frequency',
                         type = int,
-                        default = '10',
+                        default = '100',
                         help = 'Number of iterations between backup of network weights')
 
     parser.add_argument('--info_var_dim',
@@ -94,12 +94,12 @@ def hparams_parser_train(hparams_string):
 
     parser.add_argument('--info_scale_d',
                         type = float,
-                        default = '1',
+                        default = '15',
                         help = 'Scale significance of discriminator info loss')
 
     parser.add_argument('--info_scale_g',
                         type = float,
-                        default = '1',
+                        default = '15',
                         help = 'Scale significance of generator info loss')
 
     parser.add_argument('--shards_idx_test',
@@ -172,8 +172,8 @@ class WacGAN_info(object):
             self.image_dims = [128,128,3]
 
         elif dataset == 'PSD_Segmented':
-            self.dataset_filenames = ['data/processed/PSD_Segmented_Anders/data_shard_{:03d}-of-{:03d}.tfrecord'.format(i+1,psd_dataset._NUM_SHARDS) for i in range(psd_dataset._NUM_SHARDS)]
-            # self.dataset_filenames = ['data/processed/PSD_Segmented/data_shard_{:03d}-of-{:03d}.tfrecord'.format(i,psd_dataset._NUM_SHARDS) for i in range(psd_dataset._NUM_SHARDS)]
+            # self.dataset_filenames = ['data/processed/PSD_Segmented_Anders/data_shard_{:03d}-of-{:03d}.tfrecord'.format(i+1,psd_dataset._NUM_SHARDS) for i in range(psd_dataset._NUM_SHARDS)]
+            self.dataset_filenames = ['data/processed/PSD_Segmented/data_shard_{:03d}-of-{:03d}.tfrecord'.format(i,psd_dataset._NUM_SHARDS) for i in range(psd_dataset._NUM_SHARDS)]
             self.lbls_dim = 9
             self.image_dims = [128,128,3]
 
