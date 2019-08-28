@@ -721,7 +721,7 @@ class WacGAN_info(object):
         summary_images = tf.placeholder(
             dtype = tf.float32, 
             shape = [self.lbls_dim*summary_samples] + self.image_dims, 
-            name = 'input_test_lbls'))
+            name = 'summary_images')
         eval_summary_img = tfgan.eval.image_reshaper(tf.concat(summary_images, 0), num_cols=self.lbls_dim)
 
         # select check point file
