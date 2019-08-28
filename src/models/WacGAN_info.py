@@ -123,6 +123,10 @@ def hparams_parser_evaluate(hparams_string):
     parser.add_argument('--gen_samples',
                         action='store_true', 
                         help = 'Generates random samples from each class. [Defaults to False if argument is omitted]')
+
+    parser.add_argument('--gen_summary',
+                        action='store_true', 
+                        help = 'Generates eval summary samples from the model. [Defaults to False if argument is omitted]')
     
     parser.add_argument('--gen_interpolations',
                         action='store_true', 
@@ -132,6 +136,11 @@ def hparams_parser_evaluate(hparams_string):
                         type=int,
                         default=200,
                         help='Number of random samples to generate')
+
+    parser.add_argument('--summary_samples',
+                        type=int,
+                        default=15,
+                        help='Number of samples in the summary')
 
     parser.add_argument('--chunk_size',
                         type=int,
@@ -688,6 +697,7 @@ class WacGAN_info(object):
         self.unstructured_noise_dim = args_train.unstructured_noise_dim
         self.info_var_dim = args_train.info_var_dim
 
+        summary_samples = args_evaluate.summary_samples
         num_samples = args_evaluate.num_samples
         chunk_size = args_evaluate.chunk_size
 
@@ -707,6 +717,8 @@ class WacGAN_info(object):
 
         generated_images = self.__generator(input_noise, input_lbls, input_info_noise, is_training=False)
         logits_source, logits_class, _ = self.__discriminator(generated_images, is_training=False)
+        
+        eval_summary_img = tfgan.eval.image_reshaper(tf.concat(generated_images, 0), num_cols=self.lbls_dim)
 
         # select check point file
         ckpt = tf.train.get_checkpoint_state(self.dir_checkpoints)
@@ -741,6 +753,28 @@ class WacGAN_info(object):
             # Reload Tensor values from latest or specified checkpoint
             utils.show_message('Restoring model parameters from: {0}'.format(checkpoint_path))
             saver.restore(sess, checkpoint_path)
+
+            ## Generate summary image
+            if args_evaluate.gen_summary:
+                np.random.seed(seed = 0)
+                eval_unstructured_noise = np.random.uniform(low = -1.0, high = 1, size = [summary_samples, self.unstructured_noise_dim])
+                eval_unstructured_noise = np.repeat(eval_unstructured_noise, self.lbls_dim, axis = 0)
+
+                eval_info_noise = np.random.uniform(low = -1.0, high = 1, size = [summary_samples, self.info_var_dim])
+                eval_info_noise = np.repeat(eval_info_noise, self.lbls_dim, axis = 0)
+        
+                # Create one-hot encoded label for each class and tile along axis 1
+                eval_lbls = np.eye(self.lbls_dim)
+                eval_lbls = np.tile(eval_lbls,(summary_samples,1))
+
+                summary_img = sess.run(
+                    eval_summary_img, 
+                    feed_dict={input_noise:         eval_unstructured_noise,
+                               input_info_noise:    eval_info_noise,
+                               input_lbls:          eval_lbls})
+                
+                utils.save_image_local(summary_img, self.dir_results, 'evalSummary_{0}'.format(args_evaluate.epoch_no))
+
 
             ## Generate samples for each class
             if args_evaluate.gen_samples:
