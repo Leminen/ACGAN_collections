@@ -717,8 +717,12 @@ class WacGAN_info(object):
 
         generated_images = self.__generator(input_noise, input_lbls, input_info_noise, is_training=False)
         logits_source, logits_class, _ = self.__discriminator(generated_images, is_training=False)
-        
-        eval_summary_img = tfgan.eval.image_reshaper(tf.concat(generated_images, 0), num_cols=self.lbls_dim)
+
+        summary_images = tf.placeholder(
+            dtype = tf.float32, 
+            shape = [self.lbls_dim*summary_samples] + self.image_dims, 
+            name = 'input_test_lbls'))
+        eval_summary_img = tfgan.eval.image_reshaper(tf.concat(summary_images, 0), num_cols=self.lbls_dim)
 
         # select check point file
         ckpt = tf.train.get_checkpoint_state(self.dir_checkpoints)
@@ -767,11 +771,15 @@ class WacGAN_info(object):
                 eval_lbls = np.eye(self.lbls_dim)
                 eval_lbls = np.tile(eval_lbls,(summary_samples,1))
 
-                summary_img = sess.run(
-                    eval_summary_img, 
+                summary_imgs = sess.run(
+                    generated_images, 
                     feed_dict={input_noise:         eval_unstructured_noise,
                                input_info_noise:    eval_info_noise,
                                input_lbls:          eval_lbls})
+                
+                summary_img = sess.run(
+                    eval_summary_img, 
+                    feed_dict={summary_images:      summary_imgs})
                 
                 utils.save_image_local(summary_img, self.dir_results, 'evalSummary_{0}'.format(args_evaluate.epoch_no))
 
