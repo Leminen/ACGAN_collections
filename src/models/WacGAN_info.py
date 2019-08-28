@@ -577,7 +577,7 @@ class WacGAN_info(object):
             sess.run(tf.global_variables_initializer())
             
             # Create Saver object for loading and storing checkpoints
-            saver = tf.train.Saver(max_to_keep=100)
+            saver = tf.train.Saver(max_to_keep=500)
             
             # Create Writer object for storing graph and summaries for TensorBoard
             writer = tf.summary.FileWriter(self.dir_logs, sess.graph)
