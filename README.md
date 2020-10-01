@@ -1,7 +1,7 @@
 ACGAN-collections
 ==============================
 
-Project containing different ACGAN implementations:
+Project containing different GAN implementations:
 
 - acgan_v01
     (acgan implementation modeling the MNIST dataset. generator and discriminator is inspired by infoGAN)
