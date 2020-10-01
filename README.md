@@ -1,12 +1,12 @@
-ACGAN-collections
+GAN-collections
 ==============================
 
 Project containing different GAN implementations:
 
-- acgan_v01
-    (acgan implementation modeling the MNIST dataset. generator and discriminator is inspired by infoGAN)
-- acgan
-    (ACGAN implementation)
+- WacGAN
+    (GAN model combining ACGAN & Wasserstein GAN)
+- WacGAN-info
+    (GAN model combining ACGAN, info-GAN and Wasserstein GAN)
 
 Run the code with the following command:
 
